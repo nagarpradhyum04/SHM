@@ -12,6 +12,7 @@ multiplies the dynamic amplitude.
 from __future__ import annotations
 
 import math
+import zlib
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -21,10 +22,16 @@ from sqlalchemy.orm import Session
 from app.models import Device, SensorReading
 
 
-def _signal(n: int, rate: float, t0: float, rng: np.random.Generator, amp_scale: float = 1.0, anomaly_mask=None):
+def _device_constant(device_id: str) -> float:
+    """Stable per-device value in [0, 1) (crc32, unlike hash(), is not randomised per process)."""
+    return (zlib.crc32(device_id.encode()) % 10_000) / 10_000
+
+
+def _signal(n: int, rate: float, t0: float, rng: np.random.Generator, amp_scale: float = 1.0, anomaly_mask=None, phase: float = 0.0):
+    # Deterministic in absolute time so consecutive chunks (live mode) form one continuous, stationary signal.
     t = t0 + np.arange(n) / rate
-    # traffic envelope: smooth random bursts
-    env = 0.4 + 0.6 * np.clip(np.sin(2 * math.pi * t / 47.0 + rng.uniform(0, 6)) ** 8 + rng.uniform(0, 0.3), 0, 1.5)
+    # traffic envelope: periodic smooth bursts
+    env = 0.4 + 0.6 * np.clip(np.sin(2 * math.pi * t / 47.0 + 2 * math.pi * phase) ** 8, 0, 1.5)
     if anomaly_mask is not None:
         env = env * np.where(anomaly_mask, 5.0, 1.0)
     m1 = 0.012 * np.sin(2 * math.pi * 0.85 * t + 0.3)
@@ -49,8 +56,9 @@ def generate(db: Session, device: Device, start: datetime, end: datetime, anomal
     mask = np.zeros(n, dtype=bool)
     for a0, a1 in anomaly_windows or []:
         mask |= (t_rel >= (a0 - start).total_seconds()) & (t_rel < (a1 - start).total_seconds())
-    amp = 1.0 + (hash(device.id) % 7) / 10.0
-    ax, ay, az = _signal(n, rate, start.timestamp(), rng, amp, mask)
+    k = _device_constant(device.id)
+    amp = 1.0 + round(k * 7) / 10.0
+    ax, ay, az = _signal(n, rate, start.timestamp(), rng, amp, mask, phase=k)
     last_seq = db.query(func.max(SensorReading.seq)).filter(SensorReading.device_id == device.id, SensorReading.source == "simulated").scalar()
     seq0 = (last_seq or 0) + 1
     rows = [
