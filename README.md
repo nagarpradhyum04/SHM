@@ -114,13 +114,16 @@ node frontend/e2e/smoke.mjs             # browser smoke test against running ser
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` (38 tests: assets/components, upload validation, inference success with a test-only ONNX model and model-unavailable handling, defect location kinds, priority rules & filtering, alert creation/dedup/cooldown/workflow, sensor payload validation & auth, stale/offline/missing data, vibration feature maths, baselines & anomaly rule, history, PDF generation, persistence across restart, simulated/real separation, RUL unavailable, migrations-vs-models, ML metrics/evaluation) | 38 passed |
+| Backend `pytest` (39 tests: assets/components, upload validation, inference success with a test-only ONNX model and model-unavailable handling, defect location kinds, priority rules & filtering, alert creation/dedup/cooldown/workflow, sensor payload validation & auth, stale/offline/missing data, vibration feature maths, baselines & anomaly rule, history, PDF generation, persistence across restart, simulated/real separation, RUL unavailable, migrations-vs-models, geotagged filtering, ML metrics/evaluation) | 39 passed |
 | Frontend `tsc` typecheck | clean |
 | Frontend `vitest` (16 tests: geometry/anchors/focus, filters & heat, camera frustum convention, data-source separation, 3D marker click-selection via R3F test renderer, navigation to 3D location) | 16 passed |
 | Browser e2e `frontend/e2e/smoke.mjs` (twin load, layer toggle, component selection, registry → 3D navigation, priority filter, image upload with model-unavailable state, alert acknowledgement, PDF download, all sections without page errors) | 9/9 passed |
 
+| Fresh clone → `./scripts/dev.sh` (system Python 3.13, new venv) | installs, migrates, seeds and serves both apps |
+| Training pipeline smoke test (torch 2.5.1 CPU, 120 synthetic images, 2 epochs) | train → threshold → ONNX export → evaluation → loaded by backend and used for inference |
+
 The test-only ONNX model used by the inference test is generated inside the test and is not a crack
-detector. The ML training script was smoke-tested only as described in `backend/ml/README.md`.
+detector. The training smoke test proves the pipeline mechanics only; see `backend/ml/README.md`.
 
 ## Roadmap (next phases)
 

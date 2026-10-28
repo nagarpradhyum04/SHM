@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,7 +28,7 @@ SORTS = {
 
 
 def filter_defects(db: Session, *, asset_id=None, priority=None, category=None, review_status=None, component_id=None,
-                   detection_source=None, data_source=None, start=None, end=None, sort="priority"):
+                   detection_source=None, data_source=None, start=None, end=None, sort="priority", near=None):
     q = db.query(Defect)
     if asset_id:
         q = q.filter(Defect.asset_id == asset_id)
@@ -47,6 +48,11 @@ def filter_defects(db: Session, *, asset_id=None, priority=None, category=None, 
         q = q.filter(Defect.observed_at >= ensure_utc(start))
     if end:
         q = q.filter(Defect.observed_at <= ensure_utc(end))
+    if near:
+        lat, lon, radius_m = near
+        dlat = radius_m / 111_320.0
+        dlon = radius_m / (111_320.0 * max(math.cos(math.radians(lat)), 1e-6))
+        q = q.filter(Defect.latitude.between(lat - dlat, lat + dlat), Defect.longitude.between(lon - dlon, lon + dlon))
     if sort == "priority":
         rows = q.order_by(Defect.observed_at.desc()).all()
         return sorted(rows, key=lambda d: -PRIORITY_LEVELS.index(d.priority) if d.priority in PRIORITY_LEVELS else 0)
@@ -59,9 +65,16 @@ def filter_defects(db: Session, *, asset_id=None, priority=None, category=None, 
 def list_defects(asset_id: str | None = None, priority: list[str] | None = Query(None), category: list[str] | None = Query(None),
                  review_status: list[str] | None = Query(None), component_id: list[str] | None = Query(None),
                  detection_source: list[str] | None = Query(None), data_source: list[str] | None = Query(None),
-                 start: datetime | None = None, end: datetime | None = None, sort: str = "priority", db: Session = Depends(get_session)):
+                 start: datetime | None = None, end: datetime | None = None, sort: str = "priority",
+                 near_lat: float | None = Query(None, ge=-90, le=90), near_lon: float | None = Query(None, ge=-180, le=180),
+                 radius_m: float = Query(500, gt=0, le=100_000), db: Session = Depends(get_session)):
+    """Filter findings. ``near_lat``/``near_lon``/``radius_m`` select geotagged findings (bounding-box approximation of the radius);
+    findings without geographic coordinates are excluded from location filtering."""
+    if (near_lat is None) != (near_lon is None):
+        raise HTTPException(400, "near_lat and near_lon must be given together")
+    near = (near_lat, near_lon, radius_m) if near_lat is not None else None
     return filter_defects(db, asset_id=asset_id, priority=priority, category=category, review_status=review_status, component_id=component_id,
-                          detection_source=detection_source, data_source=data_source, start=start, end=end, sort=sort)
+                          detection_source=detection_source, data_source=data_source, start=start, end=end, sort=sort, near=near)
 
 
 @router.post("/defects", response_model=DefectOut, status_code=201)

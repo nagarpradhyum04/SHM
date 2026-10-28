@@ -64,6 +64,8 @@ export const DEFAULT_FILTERS: DefectFilters = { priorities: [], categories: [], 
 
 const prefs = loadPrefs();
 const prefersReduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+// On narrow screens side panels overlay the 3D view, so start with them closed.
+const wide = typeof window === "undefined" || window.innerWidth >= 1024;
 
 export const useUI = create<UIState>((set) => ({
   assetId: prefs.assetId ?? null,
@@ -72,8 +74,8 @@ export const useUI = create<UIState>((set) => ({
   layers: { ...DEFAULT_LAYERS, ...prefs.layers },
   filters: { ...DEFAULT_FILTERS, ...prefs.filters },
   reducedMotion: prefs.reducedMotion ?? !!prefersReduced,
-  leftOpen: prefs.leftOpen ?? true,
-  rightOpen: prefs.rightOpen ?? true,
+  leftOpen: prefs.leftOpen ?? wide,
+  rightOpen: prefs.rightOpen ?? wide,
   timelineOpen: prefs.timelineOpen ?? true,
   cameraCommand: null,
   pickMode: false,

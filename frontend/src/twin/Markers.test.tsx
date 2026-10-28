@@ -23,7 +23,7 @@ const mk = (id: string, over: Partial<Defect> = {}): Defect => ({
   id, asset_id: "A", component_id: "C1", inspection_id: null, image_id: null, category: "suspected_crack", detection_source: "manual", description: null,
   observed_at: "2020-01-01T00:00:00Z", model_id: null, model_version: null, model_label: null, model_confidence: null, location_kind: "surface",
   pos_x: 1, pos_y: 0, pos_z: 0, normal_x: 1, normal_y: 0, normal_z: 0, localization_method: "manual_surface_pick", location_confidence: "approximate",
-  localization_notes: null, image_region: null, overlay: null, measured_extent: null, priority: "high", priority_source: "rules", priority_rationale: [],
+  localization_notes: null, image_region: null, overlay: null, measured_extent: null, latitude: null, longitude: null, priority: "high", priority_source: "rules", priority_rationale: [],
   review_status: "new", assigned_reviewer: null, notes: null, follow_up_actions: null, related_defect_id: null, data_source: "demo", created_at: "", updated_at: "", ...over,
 });
 

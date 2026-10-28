@@ -62,15 +62,15 @@ export function AppShell() {
       <header className="z-20 flex h-12 shrink-0 items-center gap-3 border-b border-accent/10 bg-ink-950/90 px-3 backdrop-blur">
         <div className="flex items-center gap-2 pr-2">
           <Logo />
-          <div className="leading-none">
-            <div className="text-[13px] font-semibold tracking-wide text-white">StructuraSense <span className="text-accent">AI</span></div>
-            <div className="text-[9px] uppercase tracking-[0.2em] text-slate-500">Structural health monitoring</div>
+          <div className="hidden leading-none sm:block">
+            <div className="whitespace-nowrap text-[13px] font-semibold tracking-wide text-white">StructuraSense <span className="text-accent">AI</span></div>
+            <div className="hidden whitespace-nowrap text-[9px] uppercase tracking-[0.2em] text-slate-500 xl:block">Structural health monitoring</div>
           </div>
         </div>
         <div className="h-6 w-px bg-white/10" />
         <label className="flex items-center gap-2">
           <span className="sr-only">Infrastructure asset</span>
-          <select aria-label="Infrastructure asset" className="input w-64 py-1" value={assetId ?? ""} onChange={(e) => setAsset(e.target.value)}>
+          <select aria-label="Infrastructure asset" className="input w-40 py-1 md:w-64" value={assetId ?? ""} onChange={(e) => setAsset(e.target.value)}>
             {!assets?.length && <option value="">No assets registered</option>}
             {assets?.map((a) => (
               <option key={a.id} value={a.id}>{a.name}{a.is_demo ? " (demo)" : ""}</option>
@@ -78,11 +78,11 @@ export function AppShell() {
           </select>
         </label>
         {assets?.find((a) => a.id === assetId)?.is_demo && (
-          <span className="chip border-violet-400/40 bg-violet-400/10 text-violet-300" title="Procedural model and synthetic/simulated data">Demonstration asset</span>
+          <span className="chip hidden border-violet-400/40 bg-violet-400/10 text-violet-300 md:inline-flex" title="Procedural model and synthetic/simulated data">Demonstration asset</span>
         )}
         <span className="hidden text-xs text-slate-400 lg:inline">/ {current?.label ?? ""}</span>
         <div className="flex-1" />
-        <div className="hidden items-center gap-2 md:flex" title="Which sensor data sources dashboards display. Sources are always labelled.">
+        <div className="hidden items-center gap-2 lg:flex" title="Which sensor data sources dashboards display. Sources are always labelled.">
           <span className="label">Data</span>
           <Segmented value={mode} onChange={(m) => setMode.mutate(m)} size="xs"
             options={[{ value: "real", label: "Real" }, { value: "uploaded", label: "Uploaded" }, { value: "simulated", label: "Simulated" }, { value: "all", label: "All" }]} />

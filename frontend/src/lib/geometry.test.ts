@@ -14,7 +14,7 @@ const defect = (over: Partial<Defect> = {}): Defect => ({
   description: null, observed_at: new Date().toISOString(), model_id: null, model_version: null, model_label: null, model_confidence: null,
   location_kind: "component", pos_x: null, pos_y: null, pos_z: null, normal_x: null, normal_y: null, normal_z: null,
   localization_method: "manual_component", location_confidence: "component_only", localization_notes: null, image_region: null, overlay: null,
-  measured_extent: null, priority: "medium", priority_source: "rules", priority_rationale: [], review_status: "new", assigned_reviewer: null,
+  measured_extent: null, latitude: null, longitude: null, priority: "medium", priority_source: "rules", priority_rationale: [], review_status: "new", assigned_reviewer: null,
   notes: null, follow_up_actions: null, related_defect_id: null, data_source: "uploaded", created_at: "", updated_at: "", ...over,
 });
 

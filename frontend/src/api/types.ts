@@ -48,7 +48,7 @@ export interface Defect {
   location_kind: "component" | "surface"; pos_x: number | null; pos_y: number | null; pos_z: number | null;
   normal_x: number | null; normal_y: number | null; normal_z: number | null; localization_method: string;
   location_confidence: string; localization_notes: string | null; image_region: Record<string, unknown> | null;
-  overlay: { polyline?: Vec3[] } | null; measured_extent: Record<string, unknown> | null;
+  overlay: { polyline?: Vec3[] } | null; measured_extent: Record<string, unknown> | null; latitude: number | null; longitude: number | null;
   priority: Priority; priority_source: "rules" | "manual"; priority_rationale: PriorityRationale[] | null;
   review_status: ReviewStatus; assigned_reviewer: string | null; notes: string | null; follow_up_actions: string | null;
   related_defect_id: string | null; data_source: DataSource; created_at: string; updated_at: string;

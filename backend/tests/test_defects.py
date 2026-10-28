@@ -83,3 +83,14 @@ def test_spatial_projection(seeded_client):
     assert all(bbox["min"][i] - 1e-6 <= p["position"][i] <= bbox["max"][i] + 1e-6 for i in range(3))
     miss = seeded_client.post(f"{API}/spatial/project", json={"camera_id": "CAM-01", "component_id": "ABT-E", "u": 960, "v": 540})
     assert miss.status_code == 400
+
+
+def test_geotagged_filter(client, make_asset):
+    aid = make_asset()
+    base = {"asset_id": aid, "component_id": f"{aid}-C1", "category": "suspected_crack"}
+    near = client.post(f"{API}/defects", json={**base, "latitude": 12.97, "longitude": 77.59}).json()
+    client.post(f"{API}/defects", json={**base, "latitude": 13.50, "longitude": 77.59})
+    client.post(f"{API}/defects", json=base)  # not geotagged
+    got = client.get(f"{API}/defects", params={"near_lat": 12.9701, "near_lon": 77.5901, "radius_m": 200}).json()
+    assert [d["id"] for d in got] == [near["id"]]
+    assert client.get(f"{API}/defects", params={"near_lat": 12.97}).status_code == 400

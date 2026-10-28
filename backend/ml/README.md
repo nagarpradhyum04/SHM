@@ -19,7 +19,7 @@ Then use **Settings → Model registry → Rescan models** (or `POST /api/v1/mod
 
 ```bash
 cd backend
-pip install torch onnx   # in addition to requirements.txt
+pip install -r requirements.txt torch onnx
 python -m ml.train_crack_classifier --data-dir /data/concrete --out model_store/crack-cnn-v1 \
   --dataset-name "Concrete Crack Images for Classification" --dataset-version 2 \
   --dataset-url https://data.mendeley.com/datasets/5y9wdsg2zt/2 --dataset-license "CC BY 4.0"
@@ -45,6 +45,13 @@ python -m ml.evaluate --model-dir model_store/crack-cnn-v1 --data-dir /data/conc
 ## Verification status in this repository
 
 * `ml/metrics.py` and `ml/evaluate.py` are covered by `tests/test_ml_pipeline.py`.
-* See the root README "Test results" section for whether the training script was smoke-tested in the
-  development environment. Real-dataset training has **not** been performed here (the dataset host
-  was not reachable from the build environment), so no real metrics exist.
+* The training script was **smoke-tested only**: 2 epochs on 120 synthetic, watermarked demo images
+  (60 "crack", 60 "clean", 64×64 px) with torch 2.5.1 on CPU (~9 s). It completed the split, training,
+  validation threshold selection, ONNX export and test-split evaluation, and the exported model loaded
+  through the backend model registry and produced inference results via `POST /inspections/image`.
+  That smoke model is meaningless as a detector and is not included.
+* Real-dataset training has **not** been performed here (the dataset host was not reachable from the
+  build environment), so no real metrics exist.
+
+Environment for training: install `backend/requirements.txt` plus `torch` and `onnx` (the evaluation
+step reuses the backend's inference code).

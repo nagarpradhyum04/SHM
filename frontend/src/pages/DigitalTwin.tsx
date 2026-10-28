@@ -104,9 +104,9 @@ export default function DigitalTwin() {
   const err = comps.error || devices.error || defects.error;
 
   return (
-    <div className="flex h-full">
+    <div className="relative flex h-full">
       {leftOpen && (
-        <aside className="panel-solid m-2 mr-0 w-72 shrink-0 overflow-hidden rounded-lg" aria-label="Model controls">
+        <aside className="panel-solid z-30 m-2 mr-0 w-72 shrink-0 overflow-hidden rounded-lg max-lg:absolute max-lg:inset-y-0 max-lg:left-0 max-lg:shadow-glow" aria-label="Model controls">
           <Sidebar components={comps.data ?? []} devices={devices.data ?? []} defects={shown} />
         </aside>
       )}
@@ -144,7 +144,7 @@ export default function DigitalTwin() {
         {timelineOpen && <div className="panel-solid mx-2 mb-2 h-36 shrink-0"><Timeline assetId={assetId} /></div>}
       </div>
       {rightOpen && (
-        <aside className="panel-solid m-2 ml-0 w-[380px] shrink-0 overflow-hidden" aria-label="Details">
+        <aside className="panel-solid z-30 m-2 ml-0 w-[380px] max-w-[calc(100vw-5rem)] shrink-0 overflow-hidden max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:shadow-glow" aria-label="Details">
           <DetailsPanel assetId={assetId} components={componentMap} devices={devices.data ?? []} />
         </aside>
       )}

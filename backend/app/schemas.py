@@ -374,6 +374,8 @@ class DefectIn(Schema):
     localization_notes: str | None = None
     image_region: dict | None = None
     measured_extent: dict | None = None
+    latitude: float | None = Field(None, ge=-90, le=90, description="WGS84, only if the observation location was surveyed/GNSS-tagged")
+    longitude: float | None = Field(None, ge=-180, le=180)
     priority: Priority | Literal["auto"] = "auto"
     assigned_reviewer: str | None = None
     notes: str | None = None
@@ -437,6 +439,8 @@ class DefectOut(ORM):
     image_region: dict | None
     overlay: dict | None
     measured_extent: dict | None
+    latitude: float | None
+    longitude: float | None
     priority: str
     priority_source: str
     priority_rationale: list | None
