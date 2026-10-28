@@ -153,7 +153,29 @@ def build_components() -> list[dict]:
                     deck = [tx + dsgn * dx, DECK_TOP + 0.3, sgn * (HALF_W - 0.6)]
                     span = "main span" if direction == "M" else "side span"
                     b.cable(f"{gid}-{side}-{direction}{k + 1:02d}", f"Stay cable {label} {side} {span} #{k + 1}", deck, top, 0.18, gid)
+    _group_bounds(b.items)
     return b.items
+
+
+def _group_bounds(items: list[dict]) -> None:
+    """Give each group the union bounding box of its descendants (used for focus and labels)."""
+    by_parent: dict[str, list[dict]] = {}
+    for it in items:
+        if it["parent_id"]:
+            by_parent.setdefault(it["parent_id"], []).append(it)
+
+    def bounds(it: dict):
+        if it["bbox"]:
+            return it["bbox"]
+        boxes = [bb for child in by_parent.get(it["id"], []) if (bb := bounds(child))]
+        if not boxes:
+            return None
+        it["bbox"] = {"min": [min(bx["min"][i] for bx in boxes) for i in range(3)], "max": [max(bx["max"][i] for bx in boxes) for i in range(3)]}
+        it["center"] = _r([(it["bbox"]["min"][i] + it["bbox"]["max"][i]) / 2 for i in range(3)])
+        return it["bbox"]
+
+    for it in items:
+        bounds(it)
 
 
 def component_count() -> int:

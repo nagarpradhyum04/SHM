@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+html, body, #root { height: 100%; }
+body {
+  @apply bg-ink-950 text-slate-200 antialiased font-sans text-[13px];
+  background-image: radial-gradient(ellipse at 50% -20%, rgba(34, 211, 238, 0.08), transparent 60%);
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #1d2c4d; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+:focus-visible { outline: 2px solid #22d3ee; outline-offset: 1px; }
+
+@layer components {
+  .panel { @apply bg-ink-900/80 backdrop-blur-md border border-accent/15 rounded-lg; }
+  .panel-solid { @apply bg-ink-900 border border-accent/15 rounded-lg; }
+  .panel-title { @apply text-[11px] font-semibold tracking-[0.14em] uppercase text-accent-soft/80; }
+  .label { @apply text-[11px] uppercase tracking-wider text-slate-400; }
+  .btn { @apply inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn border-accent/50 bg-accent/15 text-accent-soft hover:bg-accent/25; }
+  .btn-ghost { @apply btn border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.08] hover:text-white; }
+  .btn-danger { @apply btn border-red-400/40 bg-red-500/10 text-red-300 hover:bg-red-500/20; }
+  .input { @apply w-full rounded-md border border-white/10 bg-ink-950/70 px-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:border-accent/60 focus:outline-none; }
+  .chip { @apply inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide; }
+  .table-base { @apply w-full text-left text-xs; }
+  .table-base th { @apply sticky top-0 bg-ink-900 px-3 py-2 font-medium text-[11px] uppercase tracking-wider text-slate-400 border-b border-white/10; }
+  .table-base td { @apply px-3 py-2 border-b border-white/5 align-top; }
+  .table-base tr.row-hover:hover td { @apply bg-accent/[0.04] cursor-pointer; }
+  .mono { @apply font-mono text-[11px]; }
+  .table-base td.mono { @apply whitespace-nowrap; }
+}
+
+.reduced-motion *, .reduced-motion *::before, .reduced-motion *::after {
+  animation-duration: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; }
+}
