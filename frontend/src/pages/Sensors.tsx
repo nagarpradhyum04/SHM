@@ -5,7 +5,8 @@ import { api, API_BASE } from "@/api/client";
 import { useApiMutation, useBaselines, useDevices, useFeatures, useSystemStatus } from "@/api/hooks";
 import type { Device } from "@/api/types";
 import { FeaturesChart, ReadingsChart, SourceGate } from "@/components/SensorCharts";
-import { Card, ConnBadge, Empty, Field, Loading, Notice, PageHeader, SourceBadge } from "@/components/ui";
+import { EnvironmentChart } from "@/components/EnvironmentChart";
+import { Card, ConnBadge, Empty, Field, Loading, Notice, PageHeader, Segmented, SourceBadge } from "@/components/ui";
 import { fmtDateTime, fmtNum, fmtTime } from "@/lib/format";
 import { useUI } from "@/store/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -116,6 +117,7 @@ export default function Sensors() {
   useEffect(() => { if (!sel && sensors.length) setSel(sensors[0].id); }, [sensors, sel]);
   const device = sensors.find((d) => d.id === sel);
   const [blSource, setBlSource] = useState("real");
+  const [envBucket, setEnvBucket] = useState(0);
   const analyze = useApiMutation((src: string) => api(`/sensors/${sel}/analyze?source=${src}`, { method: "POST" }), ["features", "alerts"]);
 
   return (
@@ -140,12 +142,21 @@ export default function Sensors() {
           <div className="space-y-3">
             <SourceGate device={device}>{(src) => (
               <>
+                {(device.capabilities ?? []).some((c) => c === "temperature" || c === "humidity") && (
+                  <Card title="Temperature & humidity" bodyClass="p-3"><EnvironmentChart device={device} source={src} height={200} bucket={envBucket} />
+                    <div className="mt-2 flex items-center gap-2 text-[11px]"><span className="label">Resolution</span>
+                      <Segmented size="xs" value={String(envBucket)} onChange={(v) => setEnvBucket(+v)} options={[{ value: "0", label: "Raw" }, { value: "3600", label: "Hourly" }, { value: "86400", label: "Daily" }]} />
+                    </div>
+                  </Card>
+                )}
+                {(device.capabilities ?? ["acceleration"]).includes("acceleration") && <>
                 <Card title={`${device.name} — live readings`} actions={<SourceBadge source={device.data_source} />} bodyClass="p-3"><ReadingsChart device={device} source={src} height={200} /></Card>
                 <Card title="Vibration features" actions={<button className="btn-ghost" onClick={() => analyze.mutate(src ?? (device.data_source === "simulated" ? "simulated" : "real"))}>Analyse pending windows</button>} bodyClass="p-3">
                   <FeaturesChart device={device} source={src} height={220} />
                   <Notice className="mt-2">An anomaly flags a window for engineering review. Acceleration spikes may be caused by traffic, wind, temperature or sensor faults and are not, by themselves, evidence of structural damage. Incomplete windows are not evaluated.</Notice>
                 </Card>
                 <Card title="Feature windows (latest 60)" bodyClass="max-h-80 overflow-auto"><FeatureTable device={device} source={src} /></Card>
+                </>}
               </>
             )}</SourceGate>
             <div className="grid gap-3 xl:grid-cols-2">

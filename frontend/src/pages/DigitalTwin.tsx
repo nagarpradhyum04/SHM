@@ -1,10 +1,11 @@
 import clsx from "clsx";
 import { Crosshair, Expand, Eye, Maximize2, PanelBottom, PanelLeft, PanelRight, RotateCcw, Video } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo } from "react";
-import { useComponents, useDefects, useDevices, useSummary } from "@/api/hooks";
+import { useAssets, useComponents, useDefects, useDevices, useSummary } from "@/api/hooks";
+import { API_BASE } from "@/api/client";
 import { ErrorState, Loading, Stat } from "@/components/ui";
 import { fmtAgo } from "@/lib/format";
-import { applyDefectFilters, componentHeat, focusForComponent, focusForDefect, focusForDevice } from "@/lib/geometry";
+import { applyDefectFilters, componentHeat, focusForComponent, focusForDefect, focusForDevice, sceneBounds } from "@/lib/geometry";
 import { useUI } from "@/store/ui";
 import { DetailsPanel } from "@/twin/Details";
 import { Sidebar } from "@/twin/Sidebar";
@@ -52,17 +53,22 @@ export default function DigitalTwin() {
   const assetId = useUI((s) => s.assetId);
   const filters = useUI((s) => s.filters);
   const layers = useUI((s) => s.layers);
-  const { leftOpen, rightOpen, timelineOpen, togglePanel, pickMode, setPickMode } = useUI();
+  const { leftOpen, rightOpen, timelineOpen, togglePanel, pickMode, pickPurpose, setPickMode } = useUI();
   const selection = useUI((s) => s.selection);
   const focusRequest = useUI((s) => s.focusRequest);
   const camera = useUI((s) => s.camera);
 
   const comps = useComponents(assetId ?? undefined);
+  const assets = useAssets();
+  const asset = assets.data?.find((a) => a.id === assetId);
+  const modelKind = asset?.model_kind === "gltf" ? "gltf" : "procedural";
+  const modelUrl = modelKind === "gltf" ? `${API_BASE}/assets/${assetId}/model/file?v=${encodeURIComponent(asset?.model_meta?.uploaded_at ?? "")}` : undefined;
   const devices = useDevices(assetId ?? undefined);
   const defects = useDefects({ asset_id: assetId ?? undefined }, !!assetId);
 
   const componentMap = useMemo(() => new Map((comps.data ?? []).map((c) => [c.id, c])), [comps.data]);
   const shown = useMemo(() => applyDefectFilters(defects.data ?? [], filters, layers.history), [defects.data, filters, layers.history]);
+  const bounds = useMemo(() => sceneBounds(comps.data ?? [], modelKind === "gltf" ? asset?.model_meta?.bounds : null), [comps.data, modelKind, asset?.model_meta?.bounds]);
   const heat = useMemo(() => (layers.heatmap ? componentHeat(shown.filter((d) => !["repaired", "closed", "false_positive"].includes(d.review_status))) : null), [shown, layers.heatmap]);
 
   // Focus the camera on the current selection (button, external navigation via requestFocus).
@@ -114,7 +120,8 @@ export default function DigitalTwin() {
         <div className="relative m-2 min-h-0 flex-1 overflow-hidden rounded-lg border border-accent/15 bg-ink-950">
           {err ? <ErrorState error={err} /> : comps.isLoading ? <Loading label="Loading structural model…" /> : (
             <Suspense fallback={<Loading label="Initialising 3D viewer…" />}>
-              <BridgeScene components={comps.data ?? []} componentMap={componentMap} devices={devices.data ?? []} defects={shown} heat={heat} />
+              <BridgeScene components={comps.data ?? []} componentMap={componentMap} devices={devices.data ?? []} defects={shown} heat={heat}
+                modelKind={modelKind} modelUrl={modelUrl} bounds={bounds} />
             </Suspense>
           )}
           <div className="pointer-events-none absolute inset-x-2 top-2 flex items-start justify-between gap-2">
@@ -127,13 +134,14 @@ export default function DigitalTwin() {
               <button className="rounded p-1.5 text-slate-300 hover:bg-white/5" onClick={() => togglePanel("rightOpen")} aria-label="Toggle details panel" title="Toggle details panel"><PanelRight className="h-3.5 w-3.5" /></button>
             </div>
             <div className="panel pointer-events-auto hidden items-center gap-2 px-2 text-[10px] text-slate-400 md:flex">
-              <Eye className="h-3 w-3" /> Procedural development model — not a surveyed representation.
+              <Eye className="h-3 w-3" /> {modelKind === "gltf" ? `Uploaded model: ${asset?.model_meta?.filename ?? "GLB"}` : "Procedural development model — not a surveyed representation."}
             </div>
           </div>
           <div className="pointer-events-none absolute bottom-2 right-2"><ViewControls /></div>
           {pickMode && (
             <div className="absolute left-1/2 top-24 flex -translate-x-1/2 items-center gap-2 rounded-md border border-accent/50 bg-ink-950/95 px-3 py-2 text-xs text-accent-soft shadow-glow">
-              <Video className="h-3.5 w-3.5" /> Click a point on the structure to record an approximate surface location.
+              <Video className="h-3.5 w-3.5" /> {{ finding: "Click a point on the structure to record an approximate surface location.",
+                device_position: "Click the structure where the device is installed.", device_aim: "Click the point the camera should look at." }[pickPurpose]}
               <button className="btn-ghost" onClick={() => setPickMode(false)}>Cancel</button>
             </div>
           )}

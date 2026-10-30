@@ -3,9 +3,9 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
 import { useComponents, useInspections } from "@/api/hooks";
-import type { DefectDetail, ImageRec, Inspection } from "@/api/types";
+import type { Clip, DefectDetail, ImageRec, Inspection } from "@/api/types";
 import { useQuery } from "@tanstack/react-query";
-import { EvidenceImage } from "@/components/DefectEvidence";
+import { ClipPlayer, EvidenceImage } from "@/components/DefectEvidence";
 import { RecordFindingForm } from "@/components/RecordFinding";
 import { UploadInspection } from "@/components/UploadInspection";
 import { Card, Chip, Empty, ErrorState, KV, Loading, Modal, Notice, PageHeader, PriorityBadge, SourceBadge } from "@/components/ui";
@@ -19,16 +19,16 @@ const STATUS_CLS: Record<string, string> = {
 };
 
 function InspectionDetail({ id, onClose }: { id: string; onClose: () => void }) {
-  const q = useQuery({ queryKey: ["inspection", id], queryFn: () => api<{ inspection: Inspection; image: ImageRec | null; defects: DefectDetail["defect"][] }>(`/inspections/${id}`) });
+  const q = useQuery({ queryKey: ["inspection", id], queryFn: () => api<{ inspection: Inspection; image: ImageRec | null; defects: DefectDetail["defect"][]; clips: Clip[] }>(`/inspections/${id}`) });
   const [record, setRecord] = useState(false);
   const setSel = useUI((s) => s.select);
   return (
     <Modal title={`Inspection ${id}`} onClose={onClose} wide>
       {q.isLoading ? <Loading /> : q.isError ? <ErrorState error={q.error} /> : (() => {
-        const { inspection: i, image, defects } = q.data!;
+        const { inspection: i, image, defects, clips } = q.data!;
         return (
           <div className="grid gap-4 md:grid-cols-2">
-            <div>{image ? <EvidenceImage image={image} /> : <Empty title="No image" />}</div>
+            <div className="space-y-2">{image ? <EvidenceImage image={image} /> : <Empty title="No image" />}{clips.map((c) => <ClipPlayer key={c.id} clip={c} />)}</div>
             <div className="space-y-3">
               <div className="flex flex-wrap gap-1.5"><Chip className={STATUS_CLS[i.status]}>{humanize(i.status)}</Chip><SourceBadge source={i.data_source} /></div>
               <div>

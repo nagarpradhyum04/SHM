@@ -136,10 +136,10 @@ export function Sidebar({ components, devices, defects }: { components: Componen
         )}
         {tab === "devices" && (
           <div className="space-y-3">
-            {(["camera", "accelerometer"] as const).map((type) => (
+            {(["camera", "sensor"] as const).map((type) => (
               <div key={type}>
                 <div className="panel-title flex items-center gap-1.5 px-1 pb-1">{type === "camera" ? <Camera className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}{type === "camera" ? "Cameras" : "Sensors"}</div>
-                {devices.filter((d) => d.device_type === type).map((d) => (
+                {devices.filter((d) => (type === "camera") === (d.device_type === "camera")).map((d) => (
                   <button key={d.id} onClick={() => {
                     select({ kind: "device", id: d.id });
                     const f = focusForDevice(d);
@@ -153,7 +153,7 @@ export function Sidebar({ components, devices, defects }: { components: Componen
                     <div className="truncate text-[11px] text-slate-400">{d.name}</div>
                   </button>
                 ))}
-                {!devices.some((d) => d.device_type === type) && <div className="px-1 text-[11px] text-slate-500">None registered.</div>}
+                {!devices.some((d) => (type === "camera") === (d.device_type === "camera")) && <div className="px-1 text-[11px] text-slate-500">None registered.</div>}
               </div>
             ))}
           </div>

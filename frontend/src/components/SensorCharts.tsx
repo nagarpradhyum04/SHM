@@ -7,9 +7,11 @@ import { Empty, ErrorState, Loading, Notice, SourceBadge } from "./ui";
 const axisProps = { stroke: "#475569", fontSize: 10, tickLine: false } as const;
 const tooltipStyle = { contentStyle: { background: "#060b16", border: "1px solid rgba(34,211,238,.3)", fontSize: 11 }, labelStyle: { color: "#94a3b8" } };
 
-/** Returns which source to display for a device given the global data-source mode, or null if hidden. */
-export function displaySource(device: Device, mode: string | undefined): string | null {
-  if (!mode || mode === "all") return null; // all sources (each labelled)
+/** Which single source to plot for a device under the global data-source mode ("__hidden__" if excluded).
+ * Series are never merged: in "all" mode each device shows its own native source (real or simulated);
+ * uploaded history is viewed with the "Uploaded" mode. */
+export function displaySource(device: Device, mode: string | undefined): string {
+  if (!mode || mode === "all") return device.data_source === "simulated" ? "simulated" : "real";
   if (device.data_source === "simulated") return mode === "simulated" ? "simulated" : "__hidden__";
   return mode === "simulated" ? "__hidden__" : mode; // real device: real or uploaded
 }
@@ -25,7 +27,7 @@ export function SourceGate({ device, children }: { device: Device; children: (so
         Change the mode in the top bar to view it.
       </Notice>
     );
-  return children(src ?? undefined);
+  return children(src);
 }
 
 export function ReadingsChart({ device, source, height = 160, live = true }: { device: Device; source?: string; height?: number; live?: boolean }) {

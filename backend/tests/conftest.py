@@ -172,15 +172,40 @@ def build_test_glb(nodes: list[dict]) -> bytes:
             gn["children"] = n["children"]
         if n.get("box"):
             lo, hi = n["box"]
-            verts = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])], np.float32)
-            raw = verts.tobytes()
-            views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(raw)})
-            accessors.append({"bufferView": len(views) - 1, "componentType": 5126, "count": 8, "type": "VEC3",
-                              "min": [float(v) for v in verts.min(0)], "max": [float(v) for v in verts.max(0)]})
-            meshes.append({"primitives": [{"attributes": {"POSITION": len(accessors) - 1}, "mode": 0}]})
+            # 24 vertices (4 per face, with normals) and 12 triangles: a solid, pickable box
+            faces = [(0, -1), (0, 1), (1, -1), (1, 1), (2, -1), (2, 1)]
+            pos, nor, idx = [], [], []
+            for axis, sign in faces:
+                u, v = [a for a in range(3) if a != axis]
+                base = len(pos)
+                for du, dv in ((0, 0), (1, 0), (1, 1), (0, 1)):
+                    p = [0.0, 0.0, 0.0]
+                    p[axis] = hi[axis] if sign > 0 else lo[axis]
+                    p[u] = hi[u] if du else lo[u]
+                    p[v] = hi[v] if dv else lo[v]
+                    pos.append(p)
+                    nn = [0.0, 0.0, 0.0]
+                    nn[axis] = float(sign)
+                    nor.append(nn)
+                tri = [base, base + 1, base + 2, base, base + 2, base + 3]
+                if (sign > 0) != ((axis + 1) % 3 == u):  # keep outward winding
+                    tri = [base, base + 2, base + 1, base, base + 3, base + 2]
+                idx += tri
+            pos_b = np.array(pos, np.float32).tobytes()
+            nor_b = np.array(nor, np.float32).tobytes()
+            idx_b = np.array(idx, np.uint16).tobytes()
+            first = len(accessors)
+            for raw, acc in ((pos_b, {"componentType": 5126, "count": 24, "type": "VEC3", "min": [float(min(q[k] for q in pos)) for k in range(3)],
+                                      "max": [float(max(q[k] for q in pos)) for k in range(3)]}),
+                             (nor_b, {"componentType": 5126, "count": 24, "type": "VEC3"}),
+                             (idx_b, {"componentType": 5123, "count": 36, "type": "SCALAR"})):
+                raw += b"\0" * (-len(raw) % 4)
+                views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(raw)})
+                accessors.append({"bufferView": len(views) - 1, **acc})
+                bin_parts.append(raw)
+                offset += len(raw)
+            meshes.append({"primitives": [{"attributes": {"POSITION": first, "NORMAL": first + 1}, "indices": first + 2, "mode": 4}]})
             gn["mesh"] = len(meshes) - 1
-            bin_parts.append(raw)
-            offset += len(raw)
         gnodes.append(gn)
     children = {c for n in nodes for c in n.get("children", [])}
     binary = b"".join(bin_parts)

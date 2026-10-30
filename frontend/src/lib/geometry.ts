@@ -157,3 +157,15 @@ export function frustumCorners(dv: Device, depth: number): Vec3[] {
   };
   return local.map(rot);
 }
+
+/** Camera framing for the current asset: uploaded-model bounds, else the union of component boxes, else the demo bridge. */
+export function sceneBounds(components: Pick<Component, "bbox" | "geometry">[], modelBounds?: { min: Vec3; max: Vec3 } | null): { target: Vec3; radius: number } {
+  let box = modelBounds ?? null;
+  if (!box) {
+    const boxes = components.filter((c) => c.bbox && c.geometry?.type !== "group").map((c) => c.bbox!);
+    if (boxes.length)
+      box = { min: [0, 1, 2].map((k) => Math.min(...boxes.map((b) => b.min[k]))) as Vec3, max: [0, 1, 2].map((k) => Math.max(...boxes.map((b) => b.max[k]))) as Vec3 };
+  }
+  if (!box) return { target: BRIDGE_TARGET, radius: BRIDGE_RADIUS };
+  return { target: mid(box.min, box.max), radius: Math.max(2, len(sub(box.max, box.min)) / 2) };
+}

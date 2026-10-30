@@ -1,81 +1,135 @@
-# Hardware integration guide — ESP32 + MPU6050
+# Hardware integration — ESP32 + MPU6050 + DHT22 over MQTT, USB webcam, uploaded 3D model
 
-> **Status:** the software side (device registry, authenticated ingestion API, validation,
-> feature extraction, baselines, alerts and dashboards) is implemented and tested with
-> uploaded and simulated data. **No physical hardware has been connected or validated.**
-> The firmware in `firmware/esp32_mpu6050/` is a reference sketch that has not been run on a device.
-
-## Data path
+> **Status.** Everything on the server side (MQTT bridge, validation, vibration features, limits,
+> environment readings, alerts, webcam agent, clip storage, GLB upload, device placement) is
+> implemented and tested — including against a real Mosquitto broker and a host-run of the
+> firmware's own payload code. **The firmware has not yet been flashed to your board.** Expect to
+> verify wiring, the DHT type and timing on the real hardware (see *Checks* below).
 
 ```
-MPU6050 ──I²C──► ESP32 ──Wi-Fi (HTTP/HTTPS)──► FastAPI  POST /api/v1/ingest/readings
-                                                   │  validate · dedupe · authenticate
-                                                   ▼
-                                     sensor_readings (source = "real", raw)
-                                                   │  background job, every 5 s
-                                                   ▼
-                     vibration_features (60 s windows, vib-features-v1) ── baseline comparison (vib-anomaly-v1)
-                                                   │
-                                                   ▼
-                       alerts (vibration anomaly · combined visual+vibration · stale · offline)
-                                                   │
-                                                   ▼
-                          Digital twin markers · Sensor Analytics · Reports
+ MPU6050 ─I²C─┐                                           ┌──────────── laptop ─────────────┐
+ DHT22 ──GPIO4─┤ ESP32 ──Wi-Fi──► Mosquitto :1883 ───────►│ StructuraSense backend :8000    │
+               │  bridge/<ID>/accel | env | status         │  MQTT bridge → validation →     │
+               └───────────────────────────────────────────│  readings / features / alerts   │
+ USB webcam ──► edge/camera_agent.py ──HTTP──────────────► │  frames → model → inspections   │
+                (ring buffer, clips, live preview :8081)   │  clips stored with the event     │
+                                                           └──────── browser :5173 ─────────┘
 ```
 
-## 1. Register the device
+## 1. Wiring
 
-Device Registry → **Register device** (or `POST /api/v1/devices`):
+| Part | Pin | ESP32 |
+|---|---|---|
+| MPU6050 | VCC / GND | 3V3 / GND |
+| | SDA / SCL | GPIO21 / GPIO22 |
+| | AD0 | GND (address 0x68) |
+| DHT22 (or DHT11) | VCC / GND | 3V3 / GND |
+| | DATA | GPIO4, with 10 kΩ pull-up DATA→3V3 (often on the breakout) |
 
-| Field | Value |
-|---|---|
-| Device ID | e.g. `ACC-HW-01` (used by the firmware) |
-| Type | Accelerometer |
-| Data source | **Real hardware** |
-| Component | the structural component the sensor is attached to |
-| X/Y/Z, yaw/pitch/roll | installation pose in the 3D model's **local** coordinates |
-| Latitude/longitude | only if surveyed |
-| Sample rate | must equal the firmware's `SAMPLE_RATE_HZ` (used for completeness checks) |
+Mount the MPU6050 rigidly on the structure (screwed/epoxied, not taped) — a loose mount measures the
+mount, not the structure. Keep the DHT sensor shaded and ventilated.
 
-The response contains a one-time **ingestion token**. Put it in the firmware (`DEVICE_TOKEN`).
-It is stored only as a SHA-256 hash; rotate it from the registry if it leaks. Optionally a shared
-key can be configured with `SS_DEVICE_SHARED_KEY` (keep it out of source control).
+## 2. Broker on the laptop (Mosquitto)
 
-## 2. Firmware
+* **Windows:** install from mosquitto.org, then create `mosquitto.conf`:
+  ```
+  listener 1883 0.0.0.0
+  allow_anonymous true
+  ```
+  run `mosquitto -c mosquitto.conf -v` and allow TCP 1883 in Windows Defender Firewall (private network).
+* **Linux/macOS:** `sudo apt install mosquitto` / `brew install mosquitto`, same config.
+* On shared networks use a password file instead of anonymous access
+  (`mosquitto_passwd -c passwd node`, `password_file passwd`, `allow_anonymous false`) and set
+  `SS_MQTT_USERNAME/SS_MQTT_PASSWORD` in `backend/.env` and `MQTT_USER/MQTT_PASSWORD` in the firmware.
 
-`firmware/esp32_mpu6050/esp32_mpu6050.ino` (Arduino-ESP32, libraries: *Adafruit MPU6050*, *ArduinoJson v7*):
+The backend connects to `127.0.0.1:1883` by default (`SS_MQTT_*` in `backend/.env`).
+**Settings → IoT connection (MQTT)** shows the connection state and the last 60 messages with the
+reason any message was rejected.
 
-* samples at a fixed rate, converts m/s² → g and rad/s → deg/s,
-* stamps UTC time via NTP (readings without valid time are accepted but flagged `suspect`),
-* keeps a monotonically increasing `seq` (persist it across reboots, e.g. in NVS, otherwise the
-  server rejects repeated sequence numbers as duplicates),
-* posts batches of 200 readings with the `X-Device-Token` header.
+## 3. Register the node
 
-Before relying on data, validate on hardware: sampling jitter (move HTTP posting to a separate
-FreeRTOS task), MPU6050 offsets/calibration and mounting orientation, Wi-Fi reconnection and
-buffering during outages, HTTPS with certificate pinning for anything beyond a lab network.
+Digital Twin → select the part where it is mounted → **Add device here** (or Device Registry →
+Register device): type **Sensor node**, data source **Real hardware**, sample rate **100 Hz**.
+Copy the one-time **token**. Then select the new marker → **Edit placement** → **Pick position on
+model** and click where the node is installed → **Save placement**.
 
-## 3. Dashboard behaviour
+## 4. Flash the firmware
 
-* Top bar → **Data: Real** shows only real readings; simulated and uploaded data are hidden, never merged.
-* A real device shows *Never connected* until its first reading, then *Online*, *Stale* (> `stale_after_s`)
-  or *Offline* (> `offline_after_s`). Stale/offline raise alerts; missing data is never treated as "normal".
-* Features are computed per 60 s window. Windows below 80 % completeness are stored but not evaluated.
-* **Create a baseline** (Sensor Analytics → Baselines) from a period you have verified as representative.
-  Without a baseline no anomaly is evaluated. Baselines are versioned and recorded with each feature window.
+`firmware/esp32_mqtt_node/`:
 
-## 4. Testing without hardware
+1. Arduino IDE → Board: *ESP32 Dev Module*. Library Manager: **PubSubClient**, **Adafruit MPU6050**,
+   **Adafruit Unified Sensor**, **DHT sensor library**.
+2. Copy `secrets.example.h` → `secrets.h` (git-ignored) and fill in Wi-Fi, the laptop's IPv4
+   (e.g. `192.168.29.107`), `DEVICE_ID` (exactly as registered) and `DEVICE_TOKEN`.
+3. If you use a DHT11, change `#define DHT_TYPE DHT22` to `DHT11`.
+4. Upload, open Serial Monitor at 115200 baud.
 
-```bash
-TOKEN=...  # from registration
-curl -X POST http://127.0.0.1:8000/api/v1/ingest/readings \
-  -H "Content-Type: application/json" -H "X-Device-Token: $TOKEN" \
-  -d '{"device_id":"ACC-HW-01","readings":[{"seq":1,"ts":"2026-10-28T12:00:00Z","ax":0.01,"ay":0.0,"az":1.0}]}'
-```
+What it sends (every message carries the token):
 
-## 5. Anomaly interpretation
+| Topic | Rate | Content |
+|---|---|---|
+| `bridge/<ID>/accel` | every 0.5 s | 50 samples @ 100 Hz: `seq0`, `t0_ms` (UTC via NTP), `ax/ay/az` in g, `gx/gy/gz` in °/s, MPU temperature |
+| `bridge/<ID>/env` | every 2 s | `temp_c`, `rh`, sensor type |
+| `bridge/<ID>/status` | every 10 s | firmware, RSSI, uptime, IP, `mpu_ok`, `env_ok`, dropped samples |
 
-An anomaly means the window's dynamic RMS or peak exceeded `baseline mean + k·σ`. Traffic,
-wind, temperature, loose mounting and electrical noise all cause this. Alerts ask for engineering
-review; they are not damage detections or failure predictions. Thresholds (`k`) are configurable and
-recorded with every evaluated window.
+Your earlier test sketch published made-up values flagged `"simulated": true` to `bridge/sensors`;
+the backend lists such messages in the MQTT panel as rejected and never stores them as real data.
+
+## 5. Vibration alerts ("if it exceeds the limit")
+
+The backend cuts the 100 Hz stream into 60 s windows and computes `rms_dyn` (RMS of the dynamic
+part of the acceleration magnitude, gravity removed) and `peak_dyn`. Two independent rules:
+
+* **Absolute limit** — Settings → *Alert limits*: `Vibration RMS limit (g)` / `peak limit (g)`.
+  A complete window above a limit raises **"Vibration above configured limit"** (priority high). No
+  default numbers are shipped: the limit must come from the bridge's design/serviceability criteria
+  or your engineer.
+* **Baseline anomaly** — after ~10 normal minutes, Sensor Analytics → *Create baseline*; windows above
+  `baseline + k·σ` raise **"Vibration anomaly"**.
+
+Windows with < 80 % of the expected samples are stored but not evaluated. A spike can be traffic,
+wind or a loose mount; alerts mean "review", not "damage".
+
+## 6. Temperature & humidity — what they can and cannot tell you
+
+They **cannot detect or confirm cracks**. They are recorded because temperature changes the
+structure's stiffness and therefore its vibration, and because heat/moisture cycling, near-condensation
+and freeze–thaw drive deterioration. The dashboard shows temperature, humidity, dew point and 0 °C
+crossings; Settings → *Alert limits* lets you alert on max/min temperature, max humidity or a
+condensation margin (air temperature − dew point), after N consecutive samples.
+
+## 7. Webcam: detect, keep a short clip and the photo, update the dashboard
+
+1. Register a **Camera** (data source real) on the part it watches; place it with **Edit placement**
+   and **Aim at point**.
+2. On the laptop with the webcam:
+   ```bash
+   cd backend
+   .venv/bin/python -m edge.camera_agent --device-id WEBCAM-01 --token <token> --source 0
+   ```
+   (`--source 1` for a second webcam; `--interval 5` seconds between analysed frames;
+   `--pre 5 --post 5` clip seconds; `--bind 0.0.0.0 --public-host <laptop IP>` to view the live preview
+   from other machines.)
+3. Every interval the newest frame goes to the backend, which runs the installed model. On a finding it
+   stores the **photo**, creates the finding on that component (shown on the 3D model), raises an alert,
+   and the agent uploads a **WebM clip** of the seconds around the detection. Repeated detections of an
+   already-open finding are not stored again for 1 h. One reference photo per hour is kept regardless.
+
+**Important:** crack detection needs a trained model (`backend/ml/README.md`). Without one the agent
+still streams the live preview and stores the hourly reference photos, but nothing is "detected".
+
+## 8. Your own 3D model
+
+Infrastructure Assets → *Register asset* → **3D structural model → Upload 3D model (.glb)**.
+Export one self-contained `.glb` (Blender: File → Export → glTF Binary; +Y up; metres; no Draco
+compression). Named parts become selectable components; re-uploading a revised model keeps component
+IDs by part name, so findings and devices stay attached. Defect and device markers then appear on
+your model, and you place devices with **Edit placement**.
+
+## Checks after flashing
+
+* Serial monitor shows Wi-Fi + MQTT "connected"; no "MPU6050 not found" / "DHT read failed".
+* Settings → MQTT panel: accel/env/status messages *accepted* (a rejection says why: token, ID, JSON).
+* Device turns **Online**; Sensor Analytics shows readings; with the node still, `az ≈ ±1 g`.
+* If the clock is not synced (no internet on the hotspot), readings are accepted but marked `suspect`.
+* Unplug the node: after 2 min it becomes **Stale**, after 15 min **Offline**, each with an alert.

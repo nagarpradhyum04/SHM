@@ -11,8 +11,11 @@
 | Training / evaluation pipeline | `backend/ml/` — evaluation tooling tested; training script verified only on a tiny synthetic smoke dataset (see `backend/ml/README.md`), not on a real dataset in this environment |
 | Detection / segmentation / corrosion / exposed-rebar models | Interfaces and categories only; no models |
 | Sensor ingestion, validation, features, baselines, anomaly rules | Implemented; exercised with simulated and uploaded data only |
-| ESP32 + MPU6050 firmware | Reference sketch, **not run on hardware** |
-| Live camera streams | Not implemented (cameras are registered; images arrive via upload) |
+| ESP32 + MPU6050 + DHT MQTT firmware | Written for this project, syntax-checked and payload-verified on the host; **not yet flashed to hardware** |
+| MQTT bridge | Implemented, tested with a real Mosquitto broker; broker auth is configured in Mosquitto (anonymous by default on a LAN) |
+| Temperature / humidity | Implemented as exposure context and configurable alerts — **cannot detect cracks** |
+| Webcam agent (live preview, frame analysis, event clips) | Implemented and tested with a video file; detections require an installed model |
+| Uploaded GLB models | Implemented for self-contained .glb without Draco/meshopt compression |
 | Image registration for before/after comparison | Not implemented — comparisons are explicitly side-by-side, unregistered |
 | Precise 3D localisation from images | Not implemented — camera-ray→bounding-box projection is labelled low/medium confidence |
 | Photogrammetry / survey localisation | Interface values only |
@@ -40,7 +43,9 @@ API and reports. To start without demo data set `SS_SEED_DEMO_DATA=false` before
 Implemented:
 * Upload validation by decoding the file (not by extension), type allow-list, size and pixel limits.
 * Pydantic validation of every request body; ingestion payload range checks; per-request batch limit.
-* Per-device ingestion tokens (random 256-bit, stored as SHA-256 hash, constant-time comparison, rotation).
+* Per-device ingestion tokens (random 256-bit, stored as SHA-256 hash, constant-time comparison, rotation) for HTTP, MQTT and the camera agent.
+* MQTT payloads flagged as simulated are refused; real ingestion into simulated devices is refused.
+* Wi-Fi credentials and tokens live in the git-ignored `firmware/**/secrets.h`.
 * Secrets via environment variables (`backend/.env`, git-ignored); `.env.example` contains no secrets.
 * Storage keys are opaque and path-traversal checked; filesystem paths are never returned by the API.
 * Audit trail for alert transitions, defect review changes, rule and settings changes (`event_log`, `alert_events`, `defect_events`).

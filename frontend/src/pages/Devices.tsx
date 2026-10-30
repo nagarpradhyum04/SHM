@@ -1,71 +1,13 @@
 import { KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/api/client";
-import { useApiMutation, useComponents, useDevices } from "@/api/hooks";
+import { useApiMutation, useDevices } from "@/api/hooks";
 import type { Device } from "@/api/types";
-import { Card, ConnBadge, Empty, ErrorState, Field, Loading, Modal, Notice, PageHeader, SourceBadge } from "@/components/ui";
+import { DeviceForm } from "@/components/DeviceForm";
+import { Card, ConnBadge, Empty, ErrorState, Loading, Modal, Notice, PageHeader, SourceBadge } from "@/components/ui";
 import { useShowIn3D } from "@/hooks/useShowIn3D";
 import { fmtAgo, humanize } from "@/lib/format";
 import { useUI } from "@/store/ui";
-
-type Form = Record<string, string>;
-
-function DeviceForm({ assetId, initial, onDone }: { assetId: string; initial?: Device; onDone: (token?: string | null) => void }) {
-  const comps = useComponents(assetId);
-  const [f, setF] = useState<Form>(() => ({
-    id: initial?.id ?? "", device_type: initial?.device_type ?? "accelerometer", name: initial?.name ?? "", hardware_model: initial?.hardware_model ?? "",
-    component_id: initial?.component_id ?? "", data_source: initial?.data_source ?? "real",
-    model_x: String(initial?.model_x ?? 0), model_y: String(initial?.model_y ?? 0), model_z: String(initial?.model_z ?? 0),
-    yaw_deg: String(initial?.yaw_deg ?? 0), pitch_deg: String(initial?.pitch_deg ?? 0), roll_deg: String(initial?.roll_deg ?? 0),
-    latitude: initial?.latitude?.toString() ?? "", longitude: initial?.longitude?.toString() ?? "",
-    sample_rate_hz: initial?.sample_rate_hz?.toString() ?? "100", firmware_version: initial?.firmware_version ?? "",
-    fov_deg: initial?.fov_deg?.toString() ?? "", resolution_w: initial?.resolution_w?.toString() ?? "", resolution_h: initial?.resolution_h?.toString() ?? "",
-    operational_status: initial?.operational_status ?? "active", stream_url: initial?.stream_url ?? "", notes: initial?.notes ?? "",
-  }));
-  const [err, setErr] = useState<string | null>(null);
-  const n = (v: string) => (v.trim() === "" ? null : Number(v));
-  const camera = f.device_type === "camera";
-  const save = useApiMutation(async () => {
-    const body: Record<string, unknown> = {
-      name: f.name, hardware_model: f.hardware_model || null, component_id: f.component_id || null,
-      model_x: +f.model_x, model_y: +f.model_y, model_z: +f.model_z, yaw_deg: +f.yaw_deg, pitch_deg: +f.pitch_deg, roll_deg: +f.roll_deg,
-      latitude: n(f.latitude), longitude: n(f.longitude), firmware_version: f.firmware_version || null, notes: f.notes || null,
-      ...(camera ? { fov_deg: n(f.fov_deg), resolution_w: n(f.resolution_w), resolution_h: n(f.resolution_h), stream_url: f.stream_url || null } : { sample_rate_hz: n(f.sample_rate_hz) }),
-    };
-    if (initial) return api(`/devices/${initial.id}`, { method: "PATCH", json: { ...body, operational_status: f.operational_status } });
-    return api<{ ingestion_token: string | null }>("/devices", { method: "POST", json: { ...body, id: f.id, device_type: f.device_type, asset_id: assetId, data_source: f.data_source } });
-  }, ["devices", "summary", "component"]);
-  const set = (k: string) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
-  return (
-    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); save.mutate(undefined, { onSuccess: (r: any) => onDone(r?.ingestion_token), onError: (x) => setErr((x as Error).message) }); }}>
-      <div className="grid grid-cols-3 gap-2">
-        {!initial && <Field label="Device ID"><input className="input" required pattern="[A-Za-z0-9_\-]{2,64}" value={f.id} onChange={set("id")} /></Field>}
-        {!initial && <Field label="Type"><select className="input" value={f.device_type} onChange={set("device_type")}><option value="accelerometer">Accelerometer (e.g. MPU6050)</option><option value="camera">Camera</option></select></Field>}
-        {!initial && <Field label="Data source" hint="Simulated devices never accept real ingestion"><select className="input" value={f.data_source} onChange={set("data_source")}><option value="real">Real hardware</option><option value="simulated">Simulated</option></select></Field>}
-        <Field label="Name"><input className="input" required value={f.name} onChange={set("name")} /></Field>
-        <Field label="Hardware model"><input className="input" value={f.hardware_model} onChange={set("hardware_model")} placeholder={camera ? "" : "ESP32 + MPU6050"} /></Field>
-        <Field label="Component"><select className="input" value={f.component_id} onChange={set("component_id")}><option value="">—</option>{(comps.data ?? []).filter((c) => c.geometry?.type !== "group").map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}</select></Field>
-        {(["model_x", "model_y", "model_z"] as const).map((k) => <Field key={k} label={`${k.slice(-1).toUpperCase()} (model m)`}><input className="input" inputMode="decimal" value={f[k]} onChange={set(k)} /></Field>)}
-        {(["yaw_deg", "pitch_deg", "roll_deg"] as const).map((k) => <Field key={k} label={`${k.split("_")[0]} (°)`}><input className="input" inputMode="decimal" value={f[k]} onChange={set(k)} /></Field>)}
-        <Field label="Latitude (optional)"><input className="input" value={f.latitude} onChange={set("latitude")} /></Field>
-        <Field label="Longitude (optional)"><input className="input" value={f.longitude} onChange={set("longitude")} /></Field>
-        <Field label="Firmware / config"><input className="input" value={f.firmware_version} onChange={set("firmware_version")} /></Field>
-        {camera ? (
-          <>
-            <Field label="Vertical FOV (°)"><input className="input" value={f.fov_deg} onChange={set("fov_deg")} /></Field>
-            <Field label="Resolution W"><input className="input" value={f.resolution_w} onChange={set("resolution_w")} /></Field>
-            <Field label="Resolution H"><input className="input" value={f.resolution_h} onChange={set("resolution_h")} /></Field>
-            <div className="col-span-3"><Field label="Stream URL (future live cameras)"><input className="input" value={f.stream_url} onChange={set("stream_url")} /></Field></div>
-          </>
-        ) : <Field label="Sample rate (Hz)"><input className="input" value={f.sample_rate_hz} onChange={set("sample_rate_hz")} /></Field>}
-        {initial && <Field label="Operational status"><select className="input" value={f.operational_status} onChange={set("operational_status")}>{["active", "maintenance", "decommissioned"].map((s) => <option key={s} value={s}>{humanize(s)}</option>)}</select></Field>}
-      </div>
-      <Field label="Notes"><textarea className="input h-12" value={f.notes} onChange={set("notes")} /></Field>
-      {err && <div role="alert" className="text-xs text-red-300">{err}</div>}
-      <button className="btn-primary" disabled={save.isPending}>{initial ? "Save device" : "Register device"}</button>
-    </form>
-  );
-}
 
 export default function Devices() {
   const assetId = useUI((s) => s.assetId) ?? undefined;

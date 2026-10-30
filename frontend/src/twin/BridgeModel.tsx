@@ -32,7 +32,7 @@ interface MeshProps {
 /** Transform for a geometry descriptor: position, quaternion, and box/cylinder args. */
 export function meshTransform(c: Component): { position: Vec3; quaternion: [number, number, number, number]; kind: "box" | "cyl"; args: number[] } | null {
   const g = c.geometry;
-  if (!g || g.type === "group") return null;
+  if (!g || g.type === "group" || g.type === "gltf_node") return null;
   if (g.type === "box") return { position: [c.model_x, c.model_y, c.model_z], quaternion: [0, 0, 0, 1], kind: "box", args: g.size };
   const length = len(sub(g.end, g.start));
   const q = quatFromY(g.start, g.end);

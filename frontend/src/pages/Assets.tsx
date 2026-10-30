@@ -4,6 +4,7 @@ import { api } from "@/api/client";
 import { useApiMutation, useAssets, useComponents, useSummary } from "@/api/hooks";
 import type { Asset } from "@/api/types";
 import { Card, Chip, Empty, ErrorState, Field, KV, Loading, Modal, Notice, PageHeader } from "@/components/ui";
+import { ModelUpload } from "@/components/ModelUpload";
 import { useShowIn3D } from "@/hooks/useShowIn3D";
 import { fmtDate, fmtDateTime, humanize } from "@/lib/format";
 import { useUI } from "@/store/ui";
@@ -139,6 +140,7 @@ export default function Assets() {
                 </div>
               </div>
             </Card>
+            <Card title="3D structural model"><ModelUpload asset={asset} /></Card>
             <Card title="Map">
               {asset.latitude === null ? (
                 <Empty title="No geographic coordinates"><MapPin className="mx-auto mb-1 h-4 w-4" />This asset has no recorded latitude/longitude{asset.is_demo ? " (it is a fictional demonstration bridge)" : ""}. Edit the asset to add surveyed coordinates.</Empty>

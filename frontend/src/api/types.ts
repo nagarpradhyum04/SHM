@@ -9,13 +9,16 @@ export interface Asset {
   latitude: number | null; longitude: number | null; site_description: string | null; commissioning_date: string | null;
   model_kind: string; model_ref: string | null; geo_transform: Record<string, unknown> | null;
   monitoring_status: string; is_demo: boolean; created_at: string; updated_at: string;
+  model_meta: { filename?: string; size_bytes?: number; uploaded_at?: string; nodes?: number; mesh_nodes?: number;
+    bounds?: { min: Vec3; max: Vec3 } | null; generator?: string | null; convention?: string } | null;
 }
 
 export type Geometry =
   | { type: "group" }
   | { type: "box"; size: Vec3 }
   | { type: "beam"; start: Vec3; end: Vec3; section: [number, number] }
-  | { type: "cable"; start: Vec3; end: Vec3; radius: number };
+  | { type: "cable"; start: Vec3; end: Vec3; radius: number }
+  | { type: "gltf_node"; source: "gltf"; node: number };
 
 export interface Component {
   id: string; asset_id: string; parent_id: string | null; name: string; component_type: string; mesh_ref: string | null;
@@ -29,8 +32,12 @@ export interface Connection {
   label: string; age_s: number | null; physically_connected: boolean; is_simulated: boolean;
 }
 
+export type Capability = "acceleration" | "temperature" | "humidity" | "image";
+export interface DeviceStatusReport { fw?: string; rssi?: number; uptime_s?: number; ip?: string; mpu_ok?: boolean; env_ok?: boolean; free_heap?: number; received_at?: string; [k: string]: unknown }
+
 export interface Device {
-  id: string; device_type: "camera" | "accelerometer"; name: string; hardware_model: string | null; asset_id: string;
+  id: string; device_type: "camera" | "accelerometer" | "sensor_node" | "environment"; name: string;
+  capabilities: Capability[] | null; config: { last_status?: DeviceStatusReport; transport?: string; [k: string]: unknown } | null; hardware_model: string | null; asset_id: string;
   component_id: string | null; monitored_region: string | null; model_x: number; model_y: number; model_z: number;
   yaw_deg: number; pitch_deg: number; roll_deg: number; latitude: number | null; longitude: number | null;
   data_source: "real" | "simulated"; operational_status: string; last_seen_at: string | null; firmware_version: string | null;
@@ -70,7 +77,22 @@ export interface Inspection {
 
 export interface DefectEvent { id: number; event_type: string; from_value: string | null; to_value: string | null; actor: string | null; note: string | null; created_at: string }
 
+export interface Clip { id: string; inspection_id: string | null; device_id: string | null; content_type: string; size_bytes: number; duration_s: number | null; started_at: string | null; data_source: string; created_at: string; url: string }
+
+export interface EnvPoint { t: string; source: string; n: number; temp_mean: number | null; temp_min: number | null; temp_max: number | null; rh_mean: number | null; rh_max: number | null; dew_point_mean: number | null; zero_crossings: number }
+export interface EnvSeries {
+  device_id: string; note: string; series: EnvPoint[];
+  latest: { ts: string; temperature_c: number | null; humidity_pct: number | null; sensor_model: string | null; quality: string; source: string; dew_point_c: number | null; age_s: number } | null;
+}
+
+export interface MqttStatus {
+  enabled: boolean; state: string; broker: string; topic: string; last_error: string | null; connected_since: string | null; auth: string;
+  counts: { received: number; accepted: number; rejected: number };
+  recent: { ts: string; topic: string; bytes: number; device_id: string | null; outcome: string; detail: string }[];
+}
+
 export interface DefectDetail {
+  clips?: Clip[];
   defect: Defect; component: { id: string; name: string; component_type: string } | null; image: ImageRec | null;
   inspection: Inspection | null; camera: { id: string; name: string } | null; events: DefectEvent[]; related: Defect[]; alert_ids: string[];
 }
@@ -132,7 +154,8 @@ export interface SystemStatus {
   data_source: { mode: "real" | "uploaded" | "simulated" | "all" }; simulation: { live_enabled: boolean; sample_rate_hz: number };
   readings_by_source: Record<string, number>; features_by_source: Record<string, number>; real_data_configured: boolean;
   last_real_reading_received_at: string | null; device_auth_required: boolean; shared_device_key_configured: boolean;
-  background_enabled: boolean; max_upload_mb: number; security: { user_authentication: string; note: string };
+  background_enabled: boolean; max_upload_mb: number;
+  mqtt: { enabled: boolean; state: string; broker: string; last_error: string | null; counts: { received: number; accepted: number; rejected: number } }; security: { user_authentication: string; note: string };
   categories: string[]; priority_levels: Priority[];
 }
 

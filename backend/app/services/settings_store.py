@@ -17,7 +17,7 @@ DATA_SOURCES = ["real", "uploaded", "simulated", "demo"]
 
 DEFAULTS: dict[str, Any] = {
     # Which sensor data sources the dashboard displays. Each is always labelled.
-    "data_source": {"mode": "simulated", "options": ["real", "uploaded", "simulated", "all"]},
+    "data_source": {"mode": "all", "options": ["real", "uploaded", "simulated", "all"]},
     "priority_rules": {
         "description": (
             "Rule-based review priority. Defaults are placeholders that must be reviewed and "

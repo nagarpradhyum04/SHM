@@ -34,6 +34,10 @@ Conventions
   Any rejection raises (or deduplicates into) a *Data validation failure* alert for the device.
 * `401` unknown device / bad token, `400` device not a sensor or registered as simulated, `409` decommissioned.
 
+MQTT (ESP32 nodes): topics `bridge/<device_id>/accel|env|status`, same token and validation; see
+[hardware-integration.md](hardware-integration.md) and `backend/app/services/mqtt_bridge.py` for payloads.
+Camera agent: `POST /cameras/{id}/frames`, `POST /inspections/{id}/clip`, `POST /devices/{id}/heartbeat` (all `X-Device-Token`).
+
 Historical CSV upload (`POST /sensors/{device_id}/upload`, multipart `file`, header `seq,ts,ax,ay,az[,gx,gy,gz,temperature_c]`) stores readings with source `uploaded`.
 
 ## Endpoints
@@ -56,21 +60,34 @@ Historical CSV upload (`POST /sensors/{device_id}/upload`, multipart `file`, hea
 
 | Method | Path | Notes |
 |---|---|---|
+| DELETE | `/api/v1/assets/{asset_id}/model` | Stop using the uploaded model (the file and registered components are kept for history). |
 | GET | `/api/v1/assets` | List Assets |
 | GET | `/api/v1/assets/{asset_id}` | Get Asset |
 | GET | `/api/v1/assets/{asset_id}/components` | List Components |
+| GET | `/api/v1/assets/{asset_id}/model/file` | Model File |
 | GET | `/api/v1/assets/{asset_id}/summary` | Metrics computed from stored records only. ``None`` means no data (not zero risk). |
 | GET | `/api/v1/components/{component_id}` | Component Detail |
 | PATCH | `/api/v1/assets/{asset_id}` | Patch Asset |
 | PATCH | `/api/v1/components/{component_id}` | Patch Component |
 | POST | `/api/v1/assets` | Create Asset |
 | POST | `/api/v1/assets/{asset_id}/components` | Create Component |
+| POST | `/api/v1/assets/{asset_id}/model` | Upload a self-contained GLB structural model. Optionally registers every named node as a component |
+
+### Cameras
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/clips/{clip_id}/file` | Clip File |
+| GET | `/api/v1/inspections/{inspection_id}/clips` | Inspection Clips |
+| POST | `/api/v1/cameras/{device_id}/frames` | Analyse one camera frame. ``store=on_finding`` (default) keeps the frame only when the model reports a finding; |
+| POST | `/api/v1/devices/{device_id}/heartbeat` | Liveness report from an agent/firmware. For cameras it also marks the camera as seen (frames are being captured). |
+| POST | `/api/v1/inspections/{inspection_id}/clip` | Attach a short video clip (WebM/VP8 or MP4) to an inspection produced by the same camera. |
 
 ### Defects
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/defects` | List Defects |
+| GET | `/api/v1/defects` | Filter findings. ``near_lat``/``near_lon``/``radius_m`` select geotagged findings (bounding-box approximation of the radius); |
 | GET | `/api/v1/defects/{defect_id}` | Detail |
 | PATCH | `/api/v1/defects/{defect_id}` | Patch |
 | POST | `/api/v1/defects` | Create |
@@ -124,11 +141,14 @@ Historical CSV upload (`POST /sensors/{device_id}/upload`, multipart `file`, hea
 
 | Method | Path | Notes |
 |---|---|---|
+| GET | `/api/v1/mqtt/status` | Mqtt Status |
 | GET | `/api/v1/sensors/{device_id}/baselines` | Baselines |
+| GET | `/api/v1/sensors/{device_id}/environment` | Raw (bucket_s=0) or aggregated temperature / humidity / dew point with 0 °C crossings. |
 | GET | `/api/v1/sensors/{device_id}/features` | Features |
 | GET | `/api/v1/sensors/{device_id}/latest` | Latest Reading |
 | GET | `/api/v1/sensors/{device_id}/readings` | Readings |
 | GET | `/api/v1/simulation` | Simulation Status |
+| POST | `/api/v1/ingest/environment` | Temperature/humidity ingestion over HTTP (the MQTT bridge uses the same validation). |
 | POST | `/api/v1/ingest/readings` | Device ingestion endpoint (ESP32 + MPU6050 contract v1). Requires ``X-Device-Token``. |
 | POST | `/api/v1/sensors/{device_id}/analyze` | Analyze |
 | POST | `/api/v1/sensors/{device_id}/baselines` | Create Baseline |
@@ -154,3 +174,4 @@ Historical CSV upload (`POST /sensors/{device_id}/upload`, multipart `file`, hea
 | POST | `/api/v1/models/reload` | Reload Models |
 | POST | `/api/v1/rul/estimate` | Rul Estimate |
 | PUT | `/api/v1/settings/{key}` | Put Setting |
+

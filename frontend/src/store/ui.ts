@@ -16,7 +16,9 @@ export interface DefectFilters { priorities: Priority[]; categories: string[]; s
 
 export const OPEN_STATUSES = ["new", "under_review", "confirmed", "monitoring"];
 
-export interface SurfacePick { point: Vec3; normal: Vec3; componentId: string }
+export type PickPurpose = "finding" | "device_position" | "device_aim";
+export interface SurfacePick { point: Vec3; normal: Vec3; componentId: string; purpose: PickPurpose }
+export interface PlacementPreview { deviceId: string; model_x: number; model_y: number; model_z: number; yaw_deg: number; pitch_deg: number; roll_deg: number }
 
 interface UIState {
   assetId: string | null;
@@ -30,6 +32,8 @@ interface UIState {
   timelineOpen: boolean;
   cameraCommand: (CameraCommand & { nonce: number }) | null;
   pickMode: boolean;
+  pickPurpose: PickPurpose;
+  placementPreview: PlacementPreview | null;
   focusRequest: (Selection & { nonce: number }) | null;
   lastPick: SurfacePick | null;
   setAsset: (id: string) => void;
@@ -40,8 +44,9 @@ interface UIState {
   setReducedMotion: (v: boolean) => void;
   togglePanel: (p: "leftOpen" | "rightOpen" | "timelineOpen") => void;
   camera: (c: CameraCommand) => void;
-  setPickMode: (v: boolean) => void;
-  setPick: (p: SurfacePick | null) => void;
+  setPickMode: (v: boolean, purpose?: PickPurpose) => void;
+  setPick: (p: Omit<SurfacePick, "purpose"> | null) => void;
+  setPlacementPreview: (p: PlacementPreview | null) => void;
   requestFocus: (s: Selection) => void;
 }
 
@@ -79,6 +84,8 @@ export const useUI = create<UIState>((set) => ({
   timelineOpen: prefs.timelineOpen ?? true,
   cameraCommand: null,
   pickMode: false,
+  pickPurpose: "finding",
+  placementPreview: null,
   focusRequest: null,
   lastPick: null,
   setAsset: (id) => set({ assetId: id, selection: null }),
@@ -89,8 +96,9 @@ export const useUI = create<UIState>((set) => ({
   setReducedMotion: (v) => set({ reducedMotion: v }),
   togglePanel: (p) => set((st) => ({ [p]: !st[p] }) as Partial<UIState>),
   camera: (c) => set({ cameraCommand: { ...c, nonce: Date.now() + Math.random() } }),
-  setPickMode: (v) => set({ pickMode: v }),
-  setPick: (p) => set({ lastPick: p, pickMode: false }),
+  setPickMode: (v, purpose) => set((st) => ({ pickMode: v, pickPurpose: purpose ?? st.pickPurpose })),
+  setPick: (p) => set((st) => ({ lastPick: p ? { ...p, purpose: st.pickPurpose } : null, pickMode: false })),
+  setPlacementPreview: (p) => set({ placementPreview: p }),
   requestFocus: (s) => set({ selection: s, rightOpen: true, focusRequest: { ...s, nonce: Date.now() } }),
 }));
 

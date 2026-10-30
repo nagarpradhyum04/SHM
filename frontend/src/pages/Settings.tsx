@@ -2,9 +2,10 @@ import { CheckCircle2, RefreshCw, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { useAlertRules, useApiMutation, useModels, useSettings, useSystemStatus } from "@/api/hooks";
-import type { AlertRule } from "@/api/types";
+import type { AlertRule, MqttStatus } from "@/api/types";
+import { useQuery } from "@tanstack/react-query";
 import { Card, ErrorState, Field, KV, Loading, Notice, PageHeader, Segmented } from "@/components/ui";
-import { fmtBytes, fmtDateTime, humanize } from "@/lib/format";
+import { fmtBytes, fmtDateTime, fmtTime, humanize } from "@/lib/format";
 import { PRIORITIES, PRIORITY_LABEL } from "@/lib/priority";
 import { useUI } from "@/store/ui";
 
@@ -70,6 +71,76 @@ function PriorityRules({ value }: { value: Record<string, any> }) {
   );
 }
 
+function MqttCard() {
+  const q = useQuery({ queryKey: ["mqtt"], queryFn: () => api<MqttStatus>("/mqtt/status"), refetchInterval: 5000 });
+  const m = q.data;
+  return (
+    <Card title="IoT connection (MQTT)" bodyClass="space-y-2 p-3">
+      {!m ? <Loading /> : (
+        <>
+          <KV k="Bridge" v={<Ok ok={m.state === "connected"} label={m.enabled ? `${m.state} · ${m.broker}` : "disabled (SS_MQTT_ENABLED=false)"} />} />
+          {m.last_error && <KV k="Last error" v={<span className="text-amber-300">{m.last_error}</span>} />}
+          <KV k="Topics" v={m.topic} mono />
+          <KV k="Broker auth" v={m.auth} />
+          <KV k="Messages" v={`${m.counts.received} received · ${m.counts.accepted} accepted · ${m.counts.rejected} rejected`} />
+          <div className="label pt-1">Recent messages</div>
+          <div className="max-h-56 overflow-auto rounded border border-white/5">
+            {m.recent.length === 0 ? <div className="p-2 text-[11px] text-slate-500">Nothing received yet. Check that the ESP32 publishes to this broker (laptop IP, port 1883) and that the firewall allows it.</div> : (
+              <table className="table-base">
+                <tbody>{m.recent.map((r, i) => (
+                  <tr key={i}><td className="mono">{fmtTime(r.ts)}</td><td className="mono">{r.topic}</td>
+                    <td className={r.outcome === "accepted" ? "text-emerald-300" : "text-red-300"}>{r.outcome}</td><td className="text-[11px] text-slate-400">{r.detail}</td></tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function LimitsCard({ vibration, environment }: { vibration: Record<string, any>; environment: Record<string, any> }) {
+  const fields: { key: string; group: "vibration" | "environment"; label: string; hint: string }[] = [
+    { key: "abs_rms_dyn_limit_g", group: "vibration", label: "Vibration RMS limit (g)", hint: "60 s window RMS of dynamic acceleration" },
+    { key: "abs_peak_dyn_limit_g", group: "vibration", label: "Vibration peak limit (g)", hint: "largest dynamic deviation in a window" },
+    { key: "temp_max_c", group: "environment", label: "Max temperature (°C)", hint: "" },
+    { key: "temp_min_c", group: "environment", label: "Min temperature (°C)", hint: "" },
+    { key: "humidity_max_pct", group: "environment", label: "Max humidity (%)", hint: "" },
+    { key: "condensation_margin_c", group: "environment", label: "Condensation margin (°C)", hint: "alert when air temp − dew point is below this" },
+    { key: "consecutive_samples", group: "environment", label: "Consecutive samples", hint: "readings that must all violate before alerting" },
+  ];
+  const [v, setV] = useState<Record<string, string>>({});
+  useEffect(() => setV(Object.fromEntries(fields.map((f) => [f.key, String((f.group === "vibration" ? vibration : environment)[f.key] ?? "")])))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    , [vibration, environment]);
+  const [msg, setMsg] = useState<string | null>(null);
+  const save = useApiMutation(async () => {
+    const pick = (g: string) => Object.fromEntries(fields.filter((f) => f.group === g).map((f) => [f.key, v[f.key] === "" ? null : Number(v[f.key])]));
+    const actor = localStorage.getItem("ss.actor") || null;
+    await api("/settings/vibration", { method: "PUT", json: { value: pick("vibration"), actor } });
+    await api("/settings/environment", { method: "PUT", json: { value: pick("environment"), actor } });
+  }, ["settings"]);
+  return (
+    <Card title="Alert limits (set by the responsible engineer)" bodyClass="space-y-3 p-3">
+      <Notice tone="warn">No limit values are shipped. Leave a field empty to disable it. Vibration limits trigger the “Vibration above configured limit” alert
+        from the MPU6050 windows; the baseline-relative anomaly rule keeps working independently. Temperature/humidity limits describe exposure conditions —
+        they cannot detect cracks.</Notice>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        {fields.map((f) => (
+          <Field key={f.key} label={f.label} hint={f.hint || undefined}>
+            <input className="input" inputMode="decimal" value={v[f.key] ?? ""} onChange={(e) => setV({ ...v, [f.key]: e.target.value })} aria-label={f.label} />
+          </Field>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <button className="btn-primary" onClick={() => save.mutate(undefined, { onSuccess: () => setMsg("Saved"), onError: (e) => setMsg((e as Error).message) })}>Save limits</button>
+        {msg && <span className="text-[11px] text-slate-300">{msg}</span>}
+      </div>
+    </Card>
+  );
+}
+
 function RuleRow({ r }: { r: AlertRule }) {
   const patch = useApiMutation((body: Partial<AlertRule>) => api(`/alert-rules/${r.id}`, { method: "PATCH", json: { ...body, actor: localStorage.getItem("ss.actor") || null } }), ["alert-rules"]);
   const [cool, setCool] = useState(String(r.cooldown_s));
@@ -107,6 +178,7 @@ export default function SettingsPage() {
               <KV k="Storage" v={<Ok ok={s.storage.ok && !!s.storage.writable} label={s.storage.ok ? `${s.storage.files} files · ${fmtBytes(s.storage.bytes)} · ${fmtBytes(s.storage.disk_free_bytes)} free` : s.storage.error ?? "error"} />} />
               <KV k="Inference models" v={<Ok ok={s.models.available} label={s.models.available ? s.models.loaded.map((m) => `${m.id} v${m.version}`).join(", ") : "No model installed (inference unavailable)"} />} />
               {Object.keys(s.models.errors).length > 0 && <KV k="Model errors" v={JSON.stringify(s.models.errors)} mono />}
+ <KV k="MQTT bridge" v={<Ok ok={s.mqtt.state === "connected"} label={s.mqtt.enabled ? `${s.mqtt.state} (${s.mqtt.broker})` : "disabled"} />} />
               <KV k="Background jobs" v={<Ok ok={s.background_enabled} label={s.background_enabled ? "running" : "disabled"} />} />
               <KV k="Real sensor data" v={s.real_data_configured ? `received (last ${fmtDateTime(s.last_real_reading_received_at)})` : "none received yet"} />
               <KV k="Readings by source" v={JSON.stringify(s.readings_by_source)} mono />
@@ -129,6 +201,8 @@ export default function SettingsPage() {
           <KV k="Docs" v={<a className="text-accent-soft hover:underline" href="/docs" target="_blank" rel="noreferrer">OpenAPI / Swagger UI</a>} />
           <KV k="Ingestion" v="POST /api/v1/ingest/readings · header X-Device-Token" mono />
         </Card>
+        <MqttCard />
+        {settings.data && <LimitsCard vibration={settings.data.vibration} environment={settings.data.environment} />}
         {settings.data?.priority_rules && <div className="xl:col-span-2"><PriorityRules value={settings.data.priority_rules} /></div>}
         <div id="rules" className="xl:col-span-2">
           <Card title="Alert rules" bodyClass="overflow-auto">

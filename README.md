@@ -45,6 +45,19 @@ npm run dev
 Start with an empty database instead of the demo: set `SS_SEED_DEMO_DATA=false` in `backend/.env`
 and delete `backend/data/`.
 
+## Connecting your hardware
+
+* **ESP32 + MPU6050 + DHT22 → MQTT:** run Mosquitto on the laptop, register a *Sensor node*, flash
+  `firmware/esp32_mqtt_node/` (fill in `secrets.h`). Readings, vibration windows, temperature/humidity and
+  alerts appear live; Settings → *IoT connection (MQTT)* shows every message and why any was rejected.
+* **USB webcam:** register a *Camera*, run `python -m edge.camera_agent --device-id … --token …` in `backend/`.
+  Frames are analysed by the installed model; findings keep the photo and a short clip. (Crack detection
+  requires a trained model — none is shipped.)
+* **Your own 3D model:** Infrastructure Assets → *Upload 3D model (.glb)*; named parts become components.
+  Place devices from the Digital Twin with *Add device here* → *Edit placement* (pick on surface, aim cameras).
+
+Step-by-step guide: [docs/hardware-integration.md](docs/hardware-integration.md).
+
 ## What you can do
 
 | Section | Highlights |
@@ -53,7 +66,7 @@ and delete `backend/data/`.
 | Infrastructure Assets | Asset registry (bridge, flyover, dam, building…), component registry, local-vs-geographic coordinates, optional Leaflet map (`VITE_MAP_TILE_URL`) |
 | Inspections | Upload (type/size validated by decoding) or synthetic demo image → quality check → model inference if installed, else explicit *model unavailable*; history with filters; record findings from an image |
 | Defect Registry | Filter by priority/status/category/component/detection/data source/date, sort, evidence with image region, model output, localisation method & confidence, priority rationale, review workflow and history, *Show in 3D* |
-| Device Registry | Cameras and sensors with 3D pose, data source, connection status; one-time ingestion tokens and rotation |
+| Device Registry | Cameras, sensor nodes (acceleration + temperature/humidity) and sensors with 3D pose, data source, connection status, last MQTT status report; one-time ingestion tokens and rotation; placement editing in the twin |
 | Sensor Analytics | Live readings, 60 s vibration features (mean/std/RMS/peak, completeness, duplicates, gaps), baselines, anomaly evaluation with recorded thresholds, simulation controls, CSV upload |
 | Alerts Center | Rule-based alerts with deduplication, cooldowns, evidence links, acknowledge/assign/resolve/reopen and audit trail |
 | Historical Analysis | Component inspection history, side-by-side (explicitly unregistered) comparison, status changes, repeated observations, vibration across windows and baseline changes, event log, RUL interface |
@@ -80,7 +93,9 @@ frontend/
   src/components/  evidence panel, upload, record-finding form, sensor charts, UI kit
   src/api/ store/ lib/ hooks/   API client + React Query hooks, Zustand UI store, pure geometry helpers
   e2e/smoke.mjs    browser end-to-end smoke test
-firmware/esp32_mpu6050/   reference ingestion firmware (not hardware-tested)
+firmware/esp32_mqtt_node/ ESP32 + MPU6050 + DHT22 MQTT firmware (current)
+firmware/esp32_mpu6050/   earlier HTTP-ingestion reference sketch
+backend/edge/             webcam agent (ring buffer, clips, live preview)
 docs/              architecture, API reference, hardware integration, limitations & security
 scripts/           dev.sh (start both servers), test.sh (run test suites)
 ```
@@ -110,20 +125,17 @@ and `VITE_MAP_ATTRIBUTION` for the map view.
 node frontend/e2e/smoke.mjs             # browser smoke test against running servers (needs `playwright`)
 ```
 
-### Test results (recorded in the development environment, 2026-10-28)
+### Test results (recorded in the development environment, 2026-10-30)
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` (39 tests: assets/components, upload validation, inference success with a test-only ONNX model and model-unavailable handling, defect location kinds, priority rules & filtering, alert creation/dedup/cooldown/workflow, sensor payload validation & auth, stale/offline/missing data, vibration feature maths, baselines & anomaly rule, history, PDF generation, persistence across restart, simulated/real separation, RUL unavailable, migrations-vs-models, geotagged filtering, ML metrics/evaluation) | 39 passed |
-| Frontend `tsc` typecheck | clean |
-| Frontend `vitest` (16 tests: geometry/anchors/focus, filters & heat, camera frustum convention, data-source separation, 3D marker click-selection via R3F test renderer, navigation to 3D location) | 16 passed |
-| Browser e2e `frontend/e2e/smoke.mjs` (twin load, layer toggle, component selection, registry → 3D navigation, priority filter, image upload with model-unavailable state, alert acknowledgement, PDF download, all sections without page errors) | 9/9 passed |
+| Backend `pytest` (51 tests, adding: MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload) | 51 passed |
+| Frontend `tsc` typecheck + `vitest` (20 tests, adding placement/aim maths, GLB node mapping, scene framing) | clean · 20 passed |
+| Browser e2e `frontend/e2e/smoke.mjs` | 9/9 passed |
+| Firmware `esp32_mqtt_node.ino` | g++ syntax/type check against API stubs; its payload-building code run on the host and accepted by the backend MQTT handler. **Not compiled for or flashed to an ESP32** (toolchain download blocked in this environment). |
+| Manual run: emulated node over MQTT (scratch harness, not committed) | readings/env/status ingested; 60 s windows; limit alert fired only for the window above the configured limit; node went Stale when publishing stopped |
 
-| Fresh clone → `./scripts/dev.sh` (system Python 3.13, new venv) | installs, migrates, seeds and serves both apps |
-| Training pipeline smoke test (torch 2.5.1 CPU, 120 synthetic images, 2 epochs) | train → threshold → ONNX export → evaluation → loaded by backend and used for inference |
-
-The test-only ONNX model used by the inference test is generated inside the test and is not a crack
-detector. The training smoke test proves the pipeline mechanics only; see `backend/ml/README.md`.
+The test-only ONNX model used by inference tests is generated inside the tests and is not a crack detector.
 
 ## Roadmap (next phases)
 

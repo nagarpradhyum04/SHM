@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, imageUrl } from "@/api/client";
 import { useApiMutation, useDefectDetail } from "@/api/hooks";
-import type { Defect, DefectDetail, ImageRec } from "@/api/types";
+import type { Clip, Defect, DefectDetail, ImageRec } from "@/api/types";
 import { useShowIn3D } from "@/hooks/useShowIn3D";
 import { fmtDateTime, humanize } from "@/lib/format";
 import { PRIORITIES, PRIORITY_LABEL, REVIEW_STATUSES } from "@/lib/priority";
@@ -17,6 +17,17 @@ const CONF_TEXT: Record<string, string> = {
   medium: "Medium — calibrated camera projection onto bounding geometry",
   high: "High — surveyed / photogrammetric",
 };
+
+export function ClipPlayer({ clip }: { clip: Clip }) {
+  return (
+    <figure className="overflow-hidden rounded-md border border-white/10 bg-black">
+      <video src={clip.url} controls muted playsInline className="block w-full" preload="metadata" />
+      <figcaption className="flex justify-between px-2 py-1 text-[10px] text-slate-400">
+        <span className="mono">{clip.id} · {clip.duration_s ? `${clip.duration_s.toFixed(1)} s` : ""} around the detection</span><SourceBadge source={clip.data_source} />
+      </figcaption>
+    </figure>
+  );
+}
 
 export function EvidenceImage({ image, defect, className }: { image: ImageRec; defect?: Defect; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -110,6 +121,7 @@ export function DefectEvidenceBody({ data, compact }: { data: DefectDetail; comp
         {d.description && <p className="mt-1 text-xs text-slate-300">{d.description}</p>}
       </div>
       {data.image ? <EvidenceImage image={data.image} defect={d} /> : <Notice>No image evidence attached to this finding.</Notice>}
+      {(data.clips ?? []).map((c) => <ClipPlayer key={c.id} clip={c} />)}
       <div>
         <KV k="Observed" v={fmtDateTime(d.observed_at)} />
         <KV k="Component" v={data.component ? `${data.component.name} (${data.component.id})` : "Unassigned"} />

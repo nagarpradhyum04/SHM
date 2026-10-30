@@ -15,8 +15,8 @@ describe("displaySource — simulated and real data are never mixed", () => {
     expect(displaySource(real, "uploaded")).toBe("uploaded");
     expect(displaySource(real, "simulated")).toBe("__hidden__");
   });
-  it("'all' requests every source (each rendered with its own label)", () => {
-    expect(displaySource(real, "all")).toBeNull();
-    expect(displaySource(sim, "all")).toBeNull();
+  it("'all' shows each device's own native source, never a merged series", () => {
+    expect(displaySource(real, "all")).toBe("real");
+    expect(displaySource(sim, "all")).toBe("simulated");
   });
 });

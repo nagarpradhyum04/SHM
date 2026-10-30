@@ -31,7 +31,7 @@ export function RecordFindingForm({ assetId, componentId, inspectionId, imageId,
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => () => { setPickMode(false); setPick(null); }, [setPickMode, setPick]);
-  const pick = lastPick;
+  const pick = lastPick?.purpose === "finding" ? lastPick : null;
 
   const create = useApiMutation(async () => {
     setError(null);
@@ -88,7 +88,7 @@ export function RecordFindingForm({ assetId, componentId, inspectionId, imageId,
       </Field>
       {mode === "surface_pick" && (
         <div className="space-y-2">
-          <button type="button" className={pickMode ? "btn-primary" : "btn-ghost"} onClick={() => setPickMode(!pickMode)}>
+          <button type="button" className={pickMode ? "btn-primary" : "btn-ghost"} onClick={() => setPickMode(!pickMode, "finding")}>
             <Crosshair className="h-3.5 w-3.5" />{pickMode ? "Click a point on the model…" : "Pick on model"}
           </button>
           {pick && <div className="mono text-slate-300">Picked {pick.componentId} @ ({pick.point.join(", ")})</div>}
