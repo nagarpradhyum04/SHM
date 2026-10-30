@@ -167,3 +167,15 @@ def test_mqtt_end_to_end_with_real_broker(env, monkeypatch):
         from app.services.mqtt_bridge import diagnostics
 
         diagnostics.counts.update({"received": 0, "accepted": 0, "rejected": 0})
+
+
+def test_dht11_out_of_rated_range_is_suspect(client, make_asset):
+    aid = make_asset()
+    token = _node(client, aid)
+    now = utcnow()
+    r = client.post(f"{API}/ingest/environment", headers={"X-Device-Token": token}, json={"device_id": "NODE-1", "readings": [
+        {"seq": 1, "ts": (now - timedelta(seconds=4)).isoformat(), "temp_c": 31, "rh": 65, "sensor": "DHT11"},
+        {"seq": 2, "ts": (now - timedelta(seconds=2)).isoformat(), "temp_c": 31, "rh": 96, "sensor": "DHT11"}]})
+    assert r.json()["accepted"] == 2
+    env = client.get(f"{API}/sensors/NODE-1/environment").json()
+    assert env["latest"]["quality"] == "suspect" and env["sensor_spec"]["temp_accuracy_c"] == 2.0

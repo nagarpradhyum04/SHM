@@ -1,4 +1,4 @@
-# Hardware integration — ESP32 + MPU6050 + DHT22 over MQTT, USB webcam, uploaded 3D model
+# Hardware integration — ESP32 + MPU6050 + DHT11 over MQTT, USB webcam, uploaded 3D model
 
 > **Status.** Everything on the server side (MQTT bridge, validation, vibration features, limits,
 > environment readings, alerts, webcam agent, clip storage, GLB upload, device placement) is
@@ -8,7 +8,7 @@
 
 ```
  MPU6050 ─I²C─┐                                           ┌──────────── laptop ─────────────┐
- DHT22 ──GPIO4─┤ ESP32 ──Wi-Fi──► Mosquitto :1883 ───────►│ StructuraSense backend :8000    │
+ DHT11 ──GPIO4─┤ ESP32 ──Wi-Fi──► Mosquitto :1883 ───────►│ StructuraSense backend :8000    │
                │  bridge/<ID>/accel | env | status         │  MQTT bridge → validation →     │
                └───────────────────────────────────────────│  readings / features / alerts   │
  USB webcam ──► edge/camera_agent.py ──HTTP──────────────► │  frames → model → inspections   │
@@ -23,8 +23,8 @@
 | MPU6050 | VCC / GND | 3V3 / GND |
 | | SDA / SCL | GPIO21 / GPIO22 |
 | | AD0 | GND (address 0x68) |
-| DHT22 (or DHT11) | VCC / GND | 3V3 / GND |
-| | DATA | GPIO4, with 10 kΩ pull-up DATA→3V3 (often on the breakout) |
+| DHT11 | VCC / GND | 3V3 / GND |
+| | DATA | GPIO4 (3-pin module: pull-up already fitted; bare 4-pin sensor: add 10 kΩ DATA→3V3) |
 
 Mount the MPU6050 rigidly on the structure (screwed/epoxied, not taped) — a loose mount measures the
 mount, not the structure. Keep the DHT sensor shaded and ventilated.
@@ -61,7 +61,7 @@ model** and click where the node is installed → **Save placement**.
    **Adafruit Unified Sensor**, **DHT sensor library**.
 2. Copy `secrets.example.h` → `secrets.h` (git-ignored) and fill in Wi-Fi, the laptop's IPv4
    (e.g. `192.168.29.107`), `DEVICE_ID` (exactly as registered) and `DEVICE_TOKEN`.
-3. If you use a DHT11, change `#define DHT_TYPE DHT22` to `DHT11`.
+3. The sketch is set for your **DHT11** (`#define DHT_TYPE DHT11`); change it only if you upgrade to a DHT22.
 4. Upload, open Serial Monitor at 115200 baud.
 
 What it sends (every message carries the token):
@@ -92,6 +92,10 @@ wind or a loose mount; alerts mean "review", not "damage".
 
 ## 6. Temperature & humidity — what they can and cannot tell you
 
+**Your DHT11:** 0–50 °C ±2 °C, 20–90 %RH ±5 %, 1-unit resolution. Readings outside that rated range are
+stored but marked *suspect*. With this accuracy the computed dew point is only good to roughly ±2–3 °C, so
+if you use the condensation-margin alert, set the margin larger than that (or upgrade to a DHT22/SHT31).
+
 They **cannot detect or confirm cracks**. They are recorded because temperature changes the
 structure's stiffness and therefore its vibration, and because heat/moisture cycling, near-condensation
 and freeze–thaw drive deterioration. The dashboard shows temperature, humidity, dew point and 0 °C
@@ -102,12 +106,14 @@ condensation margin (air temperature − dew point), after N consecutive samples
 
 1. Register a **Camera** (data source real) on the part it watches; place it with **Edit placement**
    and **Aim at point**.
-2. On the laptop with the webcam:
+2. On the laptop the USB webcam is plugged into, first find its index (built-in laptop cameras are usually 0,
+   a plugged-in USB camera is often 1), and close other apps that use the camera (Zoom, Camera app, browser):
    ```bash
    cd backend
-   .venv/bin/python -m edge.camera_agent --device-id WEBCAM-01 --token <token> --source 0
+   .venv/bin/python -m edge.camera_agent --list-cameras          # Windows: .venv\Scripts\python -m edge.camera_agent --list-cameras
+   .venv/bin/python -m edge.camera_agent --device-id WEBCAM-01 --token <token> --source 1
    ```
-   (`--source 1` for a second webcam; `--interval 5` seconds between analysed frames;
+   (on Windows the agent opens webcams through DirectShow; `--interval 5` seconds between analysed frames;
    `--pre 5 --post 5` clip seconds; `--bind 0.0.0.0 --public-host <laptop IP>` to view the live preview
    from other machines.)
 3. Every interval the newest frame goes to the backend, which runs the installed model. On a finding it
@@ -126,10 +132,18 @@ compression). Named parts become selectable components; re-uploading a revised m
 IDs by part name, so findings and devices stay attached. Defect and device markers then appear on
 your model, and you place devices with **Edit placement**.
 
+## Windows quick start
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dev.ps1        # backend + frontend in two windows
+mosquitto -c mosquitto.conf -v                                  # in the Mosquitto install folder
+cd backend; .venv\Scripts\python -m edge.camera_agent --device-id WEBCAM-01 --token <token> --source 1
+```
+
 ## Checks after flashing
 
 * Serial monitor shows Wi-Fi + MQTT "connected"; no "MPU6050 not found" / "DHT read failed".
 * Settings → MQTT panel: accel/env/status messages *accepted* (a rejection says why: token, ID, JSON).
 * Device turns **Online**; Sensor Analytics shows readings; with the node still, `az ≈ ±1 g`.
-* If the clock is not synced (no internet on the hotspot), readings are accepted but marked `suspect`.
+* The ESP32 syncs its clock from `pool.ntp.org` over your internet connection; if NTP ever fails, readings are still accepted but marked `suspect`.
 * Unplug the node: after 2 min it becomes **Stale**, after 15 min **Offline**, each with an alert.

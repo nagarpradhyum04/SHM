@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import tempfile
 import threading
 import time
@@ -83,7 +84,7 @@ class Capture(threading.Thread):
     def __init__(self, source, fps: float, width: int | None, buf: FrameBuffer, loop_file: bool):
         super().__init__(daemon=True)
         self.source, self.fps, self.buf, self.loop_file = source, fps, buf, loop_file
-        self.cap = cv2.VideoCapture(source)
+        self.cap = open_capture(source)
         if width:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         if not self.cap.isOpened():
@@ -105,6 +106,28 @@ class Capture(threading.Thread):
                 continue
             self.buf.add(t, frame)
             time.sleep(max(0.0, period - (time.time() - t)))
+
+
+def open_capture(source):
+    """Open a webcam index or a file/URL. On Windows, USB webcams open faster and more reliably via DirectShow."""
+    if isinstance(source, int) and os.name == "nt":
+        cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            return cap
+    return cv2.VideoCapture(source)
+
+
+def list_cameras(max_index: int = 6) -> list[dict]:
+    cv2.setLogLevel(0)  # silent: probing absent indices is expected to fail
+    found = []
+    for i in range(max_index):
+        cap = open_capture(i)
+        if cap.isOpened():
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                found.append({"index": i, "width": frame.shape[1], "height": frame.shape[0]})
+        cap.release()
+    return found
 
 
 def write_clip(frames, fps: float) -> bytes | None:
@@ -227,8 +250,9 @@ def run(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--api", default="http://127.0.0.1:8000")
-    ap.add_argument("--device-id", required=True)
-    ap.add_argument("--token", required=True)
+    ap.add_argument("--device-id")
+    ap.add_argument("--token")
+    ap.add_argument("--list-cameras", action="store_true", help="print the webcam indices that deliver frames, then exit")
     ap.add_argument("--source", default="0", help="webcam index (0, 1, …), video file or stream URL")
     ap.add_argument("--loop", action="store_true", help="loop a video file source")
     ap.add_argument("--fps", type=float, default=10)
@@ -244,6 +268,12 @@ def main() -> None:
     ap.add_argument("--run-for", type=float, default=0, help="stop after N seconds (testing)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if args.list_cameras:
+        cams = list_cameras()
+        print("\n".join(f"--source {c['index']}   ({c['width']}x{c['height']})" for c in cams) or "No webcam delivered frames (is another app using it?).")
+        return
+    if not args.device_id or not args.token:
+        ap.error("--device-id and --token are required")
     run(args)
 
 

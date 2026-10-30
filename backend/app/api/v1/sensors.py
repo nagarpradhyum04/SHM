@@ -217,6 +217,7 @@ def environment_series(device_id: str, source: str | None = Source, start: datet
                    "dew_point_c": environment.dew_point_c(latest.temperature_c, latest.humidity_pct),
                    "age_s": (utcnow() - latest.ts).total_seconds()} if latest else None,
         "series": environment.aggregate(rows, bucket_s),
+        "sensor_spec": environment.SENSOR_SPECS.get((latest.sensor_model or "").upper()) if latest else None,
         "note": "Ambient exposure context. Temperature and humidity cannot detect cracks.",
     }
 

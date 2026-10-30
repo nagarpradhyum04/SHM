@@ -1,5 +1,5 @@
 /*
- * StructuraSense AI — ESP32 sensor node: MPU6050 (vibration) + DHT22/DHT11 (temperature/humidity) over MQTT.
+ * StructuraSense AI — ESP32 sensor node: MPU6050 (vibration) + DHT11 (temperature/humidity) over MQTT.
  *
  * Publishes (topic prefix "bridge", matching the backend's SS_MQTT_TOPIC_PREFIX):
  *   bridge/<DEVICE_ID>/accel   every 0.5 s: 50 samples at 100 Hz  {token, seq0, t0_ms, rate_hz, ax[], ay[], az[], gx[], gy[], gz[], temp_c, fw}
@@ -15,7 +15,10 @@
  *
  * Wiring (default pins):
  *   MPU6050  VCC→3V3  GND→GND  SDA→GPIO21  SCL→GPIO22   (AD0 to GND → I2C address 0x68)
- *   DHT22    VCC→3V3  GND→GND  DATA→GPIO4 with a 10 kΩ pull-up from DATA to 3V3 (many breakout boards include it)
+ *   DHT11    VCC→3V3  GND→GND  DATA→GPIO4. A 3-pin DHT11 module already has the pull-up; a bare 4-pin DHT11
+ *            needs a 10 kΩ resistor from DATA to 3V3 (pin 3 of the bare sensor is unused).
+ *   DHT11 specification: 0–50 °C ±2 °C, 20–90 %RH ±5 %, 1 °C / 1 % resolution — good enough for exposure
+ *   trends, too coarse for precise dew-point work. Swap to a DHT22 by changing DHT_TYPE below.
  *
  * STATUS: written for this project and compiled logic reviewed, but not yet run on your hardware. Check the
  * serial monitor (115200 baud) and the Settings → "IoT connection (MQTT)" panel after flashing.
@@ -34,7 +37,7 @@
 
 // ---------------------------------------------------------------- configuration
 #define DHT_PIN 4
-#define DHT_TYPE DHT22        // or DHT11
+#define DHT_TYPE DHT11        // your sensor; use DHT22 if you upgrade
 #define I2C_SDA 21
 #define I2C_SCL 22
 #define TOPIC_PREFIX "bridge"
@@ -42,7 +45,7 @@
 
 static const uint32_t SAMPLE_RATE_HZ = 100;   // register the device with the same sample rate
 static const uint16_t BATCH = 50;             // samples per accel message (0.5 s)
-static const uint32_t ENV_PERIOD_MS = 2000;   // DHT22 needs ≥ 2 s between reads (DHT11: ≥ 1 s)
+static const uint32_t ENV_PERIOD_MS = 2000;   // DHT11 needs ≥ 1 s between reads (DHT22 ≥ 2 s)
 static const uint32_t STATUS_PERIOD_MS = 10000;
 static const uint32_t SEQ_BLOCK = 1000000;    // sequence numbers reserved per boot (persisted in NVS)
 
@@ -185,9 +188,9 @@ static void publishEnv() {
   float t = dht.readTemperature();
   float h = dht.readHumidity();
   envOk = !isnan(t) && !isnan(h);
-  if (!envOk) { Serial.println("DHT read failed (check wiring / pull-up)"); return; }
+  if (!envOk) { Serial.println("DHT11 read failed (check DATA on GPIO4, 3V3 power and pull-up)"); return; }
   size_t n = put(0, "{\"token\":\"%s\",\"temp_c\":%.2f,\"rh\":%.1f,\"sensor\":\"%s\"", DEVICE_TOKEN, t, h,
-                 DHT_TYPE == DHT22 ? "DHT22" : "DHT11");
+                 DHT_TYPE == DHT11 ? "DHT11" : "DHT22");
   // seq = epoch seconds: unique across reboots for a ≥ 1 s period, so the server can reject re-sent duplicates
   if (timeValid()) n = put(n, ",\"seq\":%lld,\"t_ms\":%lld", (long long)(nowMs() / 1000), (long long)nowMs());
   n = put(n, "}");

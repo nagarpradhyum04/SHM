@@ -82,6 +82,7 @@ export interface Clip { id: string; inspection_id: string | null; device_id: str
 export interface EnvPoint { t: string; source: string; n: number; temp_mean: number | null; temp_min: number | null; temp_max: number | null; rh_mean: number | null; rh_max: number | null; dew_point_mean: number | null; zero_crossings: number }
 export interface EnvSeries {
   device_id: string; note: string; series: EnvPoint[];
+  sensor_spec: { temp_accuracy_c: number; rh_accuracy_pct: number; resolution: string; temp_range_c: [number, number]; rh_range_pct: [number, number] } | null;
   latest: { ts: string; temperature_c: number | null; humidity_pct: number | null; sensor_model: string | null; quality: string; source: string; dew_point_c: number | null; age_s: number } | null;
 }
 

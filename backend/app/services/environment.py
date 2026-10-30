@@ -23,6 +23,12 @@ from app.services.events import broadcaster
 from app.services.settings_store import get_setting
 from app.timeutil import ensure_utc, utcnow
 
+# Manufacturer ratings. Readings outside the rated range are kept but marked "suspect".
+SENSOR_SPECS = {
+    "DHT11": {"temp_range_c": (0.0, 50.0), "rh_range_pct": (20.0, 90.0), "temp_accuracy_c": 2.0, "rh_accuracy_pct": 5.0, "resolution": "1 °C / 1 %RH"},
+    "DHT22": {"temp_range_c": (-40.0, 80.0), "rh_range_pct": (0.0, 100.0), "temp_accuracy_c": 0.5, "rh_accuracy_pct": 2.0, "resolution": "0.1 °C / 0.1 %RH"},
+}
+
 TEMP_RANGE_C = (-40.0, 125.0)  # covers DHT22 (−40…80), DS18B20 (−55…125 clipped), BME280 (−40…85)
 MAX_FUTURE_S = 300
 
@@ -62,6 +68,11 @@ def _validate(r: dict, now: datetime) -> tuple[dict | None, str | None]:
     ts = ensure_utc(ts)
     if (ts - now).total_seconds() > MAX_FUTURE_S:
         return None, "timestamp in the future"
+    model = str(r.get("sensor")).upper() if r.get("sensor") else None
+    spec = SENSOR_SPECS.get(model or "")
+    if spec and ((t is not None and not spec["temp_range_c"][0] <= t <= spec["temp_range_c"][1])
+                 or (h is not None and not spec["rh_range_pct"][0] <= h <= spec["rh_range_pct"][1])):
+        quality = "suspect"  # outside the sensor's rated range: kept, but not trustworthy
     seq = r.get("seq")
     return {"ts": ts, "seq": int(seq) if seq is not None else None, "temperature_c": t, "humidity_pct": h,
             "sensor_model": (str(r.get("sensor"))[:40] if r.get("sensor") else None), "quality": quality}, None

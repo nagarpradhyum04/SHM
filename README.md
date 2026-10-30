@@ -23,6 +23,8 @@ Requirements: Python 3.11+ (tested with 3.12), Node.js 20+ (tested with 22).
 ./scripts/dev.sh
 ```
 
+On Windows use `powershell -ExecutionPolicy Bypass -File scripts\dev.ps1`.
+
 This creates `backend/.venv`, installs dependencies, starts the API on http://127.0.0.1:8000 and the
 web app on http://127.0.0.1:5173 (open this one). On first start the database is migrated and the
 demonstration bridge is seeded (~15 s). API docs: http://127.0.0.1:8000/docs.
@@ -47,7 +49,7 @@ and delete `backend/data/`.
 
 ## Connecting your hardware
 
-* **ESP32 + MPU6050 + DHT22 → MQTT:** run Mosquitto on the laptop, register a *Sensor node*, flash
+* **ESP32 + MPU6050 + DHT11 → MQTT:** run Mosquitto on the laptop, register a *Sensor node*, flash
   `firmware/esp32_mqtt_node/` (fill in `secrets.h`). Readings, vibration windows, temperature/humidity and
   alerts appear live; Settings → *IoT connection (MQTT)* shows every message and why any was rejected.
 * **USB webcam:** register a *Camera*, run `python -m edge.camera_agent --device-id … --token …` in `backend/`.
@@ -93,7 +95,7 @@ frontend/
   src/components/  evidence panel, upload, record-finding form, sensor charts, UI kit
   src/api/ store/ lib/ hooks/   API client + React Query hooks, Zustand UI store, pure geometry helpers
   e2e/smoke.mjs    browser end-to-end smoke test
-firmware/esp32_mqtt_node/ ESP32 + MPU6050 + DHT22 MQTT firmware (current)
+firmware/esp32_mqtt_node/ ESP32 + MPU6050 + DHT11 MQTT firmware (current)
 firmware/esp32_mpu6050/   earlier HTTP-ingestion reference sketch
 backend/edge/             webcam agent (ring buffer, clips, live preview)
 docs/              architecture, API reference, hardware integration, limitations & security
@@ -129,7 +131,7 @@ node frontend/e2e/smoke.mjs             # browser smoke test against running ser
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` (51 tests, adding: MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload) | 51 passed |
+| Backend `pytest` (52 tests, adding: MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 52 passed |
 | Frontend `tsc` typecheck + `vitest` (20 tests, adding placement/aim maths, GLB node mapping, scene framing) | clean · 20 passed |
 | Browser e2e `frontend/e2e/smoke.mjs` | 9/9 passed |
 | Firmware `esp32_mqtt_node.ino` | g++ syntax/type check against API stubs; its payload-building code run on the host and accepted by the backend MQTT handler. **Not compiled for or flashed to an ESP32** (toolchain download blocked in this environment). |

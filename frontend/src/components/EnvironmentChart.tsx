@@ -29,7 +29,12 @@ export function EnvironmentChart({ device, source, height = 170, bucket = 0 }: {
         <Stat label="Latest" value={fmtAgo(l.ts)} hint={fmtDateTime(l.ts)} tone={l.age_s > 300 ? "warn" : undefined} />
       </div>
       <div className="flex items-center justify-between text-[10px] text-slate-400">
-        <span>{l.sensor_model ?? "sensor"} · {d.series.length} {bucket ? "buckets" : "samples"}</span><SourceBadge source={l.source} />
+        <span>
+          {l.sensor_model ?? "sensor"}{d.sensor_spec && ` · accuracy ±${d.sensor_spec.temp_accuracy_c} °C / ±${d.sensor_spec.rh_accuracy_pct} %RH, ${d.sensor_spec.resolution}`}
+          {" · "}{d.series.length} {bucket ? "buckets" : "samples"}
+          {l.quality === "suspect" && <span className="ml-1 text-amber-300" title="Outside the sensor's rated range or without device time">· latest reading suspect</span>}
+        </span>
+        <SourceBadge source={l.source} />
       </div>
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
