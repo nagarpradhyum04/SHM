@@ -13,6 +13,12 @@ and an active baseline from the *same data source*):
 * peak_dyn > baseline.peak_dyn_mean + k_p · σ_peak
 where σ = max(baseline std, 5 % of baseline mean) to avoid zero-variance baselines.
 
+Absolute limits (optional, set by the responsible engineer in Settings → vibration):
+* rms_dyn  > abs_rms_dyn_limit_g   → "rms_dyn_above_absolute_limit"
+* peak_dyn > abs_peak_dyn_limit_g  → "peak_dyn_above_absolute_limit"
+These are evaluated on complete windows even before a baseline exists. No default values
+are shipped: a limit only applies once it has been configured.
+
 An anomaly flags a window for review. It is not, by itself, evidence of damage
 (traffic, wind, temperature and sensor faults all cause spikes).
 """
@@ -68,14 +74,21 @@ def evaluate_anomaly(features: dict, baseline: Baseline | None, cfg: dict, compl
     }
     if completeness is not None and completeness < cfg["min_window_completeness"]:
         return False, ["not_evaluated:incomplete_window"], thresholds
+    reasons: list[str] = []
+    abs_rms, abs_pk = cfg.get("abs_rms_dyn_limit_g"), cfg.get("abs_peak_dyn_limit_g")
+    if abs_rms is not None or abs_pk is not None:
+        thresholds.update({"abs_rms_dyn_limit_g": abs_rms, "abs_peak_dyn_limit_g": abs_pk})
+    if abs_rms is not None and features["rms_dyn"] > abs_rms:
+        reasons.append("rms_dyn_above_absolute_limit")
+    if abs_pk is not None and features["peak_dyn"] > abs_pk:
+        reasons.append("peak_dyn_above_absolute_limit")
     if baseline is None:
-        return False, ["not_evaluated:no_baseline"], thresholds
+        return bool(reasons), reasons or ["not_evaluated:no_baseline"], thresholds
     s_rms = max(baseline.rms_dyn_std, SIGMA_FLOOR_FRACTION * baseline.rms_dyn_mean)
     s_pk = max(baseline.peak_dyn_std, SIGMA_FLOOR_FRACTION * baseline.peak_dyn_mean)
     rms_lim = baseline.rms_dyn_mean + cfg["anomaly_k_sigma"] * s_rms
     pk_lim = baseline.peak_dyn_mean + cfg["peak_k_sigma"] * s_pk
     thresholds.update({"rms_dyn_limit": rms_lim, "peak_dyn_limit": pk_lim, "baseline_id": baseline.id, "baseline_version": baseline.version})
-    reasons = []
     if features["rms_dyn"] > rms_lim:
         reasons.append("rms_dyn_above_baseline")
     if features["peak_dyn"] > pk_lim:

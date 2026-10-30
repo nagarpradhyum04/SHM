@@ -16,6 +16,7 @@ def _configure(tmp: Path, model_dir: Path | None = None):
     os.environ["SS_MODEL_DIR"] = str(model_dir or (tmp / "models"))
     os.environ["SS_BACKGROUND_ENABLED"] = "false"
     os.environ["SS_SEED_DEMO_DATA"] = "false"
+    os.environ["SS_MQTT_ENABLED"] = "false"
     os.environ["SS_DEVICE_SHARED_KEY"] = ""
     from app.config import get_settings
     from app.db import set_database
@@ -151,3 +152,44 @@ def build_test_onnx_model(directory: Path) -> Path:
             "dataset": {"name": "none — test fixture"}, "metrics": None}
     (directory / "model_card.json").write_text(json.dumps(card))
     return directory
+
+
+def build_test_glb(nodes: list[dict]) -> bytes:
+    """Build a minimal valid GLB. Each node: {"name", "box": (min, max) or None, "translation"?, "children"?: [indices]}.
+    Box nodes get a mesh whose POSITION accessor spans the box (8 vertices)."""
+    import json
+    import struct
+
+    import numpy as np
+
+    bin_parts, accessors, views, meshes, gnodes = [], [], [], [], []
+    offset = 0
+    for n in nodes:
+        gn = {"name": n["name"]}
+        if n.get("translation"):
+            gn["translation"] = list(n["translation"])
+        if n.get("children"):
+            gn["children"] = n["children"]
+        if n.get("box"):
+            lo, hi = n["box"]
+            verts = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])], np.float32)
+            raw = verts.tobytes()
+            views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(raw)})
+            accessors.append({"bufferView": len(views) - 1, "componentType": 5126, "count": 8, "type": "VEC3",
+                              "min": [float(v) for v in verts.min(0)], "max": [float(v) for v in verts.max(0)]})
+            meshes.append({"primitives": [{"attributes": {"POSITION": len(accessors) - 1}, "mode": 0}]})
+            gn["mesh"] = len(meshes) - 1
+            bin_parts.append(raw)
+            offset += len(raw)
+        gnodes.append(gn)
+    children = {c for n in nodes for c in n.get("children", [])}
+    binary = b"".join(bin_parts)
+    doc = {"asset": {"version": "2.0", "generator": "structurasense-test"}, "scene": 0,
+           "scenes": [{"nodes": [i for i in range(len(nodes)) if i not in children]}], "nodes": gnodes, "meshes": meshes,
+           "accessors": accessors, "bufferViews": views, "buffers": [{"byteLength": len(binary)}]}
+    js = json.dumps(doc).encode()
+    js += b" " * (-len(js) % 4)
+    binary += b"\0" * (-len(binary) % 4)
+    total = 12 + 8 + len(js) + 8 + len(binary)
+    return (b"glTF" + struct.pack("<II", 2, total) + struct.pack("<II", len(js), 0x4E4F534A) + js
+            + struct.pack("<II", len(binary), 0x004E4942) + binary)

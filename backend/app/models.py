@@ -56,6 +56,9 @@ class Asset(TimestampMixin, Base):
     model_ref: Mapped[str | None] = mapped_column(String(300))
     # {"origin_lat", "origin_lon", "origin_alt_m", "heading_deg", "scale", "calibrated": bool, "method": str}
     geo_transform: Mapped[dict | None] = mapped_column(JSON)
+    # Uploaded GLB/GLTF structural model (opaque storage key, never exposed) and parsed metadata
+    model_file_key: Mapped[str | None] = mapped_column(String(300))
+    model_meta: Mapped[dict | None] = mapped_column(JSON)
     monitoring_status: Mapped[str] = mapped_column(String(30), default="active")
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -97,7 +100,11 @@ class Device(TimestampMixin, Base):
     __tablename__ = "devices"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    device_type: Mapped[str] = mapped_column(String(30), nullable=False)  # camera | accelerometer
+    device_type: Mapped[str] = mapped_column(String(30), nullable=False)  # camera | accelerometer | sensor_node | environment
+    # Measurement channels: acceleration, temperature, humidity, image
+    capabilities: Mapped[list | None] = mapped_column(JSON)
+    # Per-device options (e.g. transport, camera agent settings)
+    config: Mapped[dict | None] = mapped_column(JSON)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     hardware_model: Mapped[str | None] = mapped_column(String(100))
     asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
@@ -266,6 +273,43 @@ class SensorReading(Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False)  # real | uploaded | simulated
     processing_status: Mapped[str] = mapped_column(String(20), default="raw")  # raw | processed
     received_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class EnvironmentReading(Base):
+    """Ambient temperature / relative humidity samples (e.g. DHT22 on the sensor node)."""
+
+    __tablename__ = "environment_readings"
+    __table_args__ = (Index("ix_env_device_ts", "device_id", "source", "ts"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"))
+    component_id: Mapped[str | None] = mapped_column(String(80))
+    ts: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    seq: Mapped[int | None] = mapped_column(Integer)
+    temperature_c: Mapped[float | None] = mapped_column(Float)
+    humidity_pct: Mapped[float | None] = mapped_column(Float)
+    sensor_model: Mapped[str | None] = mapped_column(String(40))
+    quality: Mapped[str] = mapped_column(String(20), default="ok")
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class MediaClip(Base):
+    """Short video clip around a camera event (stored as a file, referenced by opaque key)."""
+
+    __tablename__ = "media_clips"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
+    inspection_id: Mapped[str | None] = mapped_column(ForeignKey("inspections.id"), index=True)
+    storage_key: Mapped[str] = mapped_column(String(300))
+    content_type: Mapped[str] = mapped_column(String(60))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    duration_s: Mapped[float | None] = mapped_column(Float)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    data_source: Mapped[str] = mapped_column(String(20), default="real")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class Baseline(Base):

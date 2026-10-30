@@ -24,6 +24,10 @@ DEFAULT_RULES: list[dict] = [
      "description": "A new visual finding (AI or manual) was recorded on a component. Alert priority follows the finding's review priority when assessed.", "params": {}},
     {"rule_type": "vibration_anomaly", "name": "Vibration anomaly", "priority": "medium", "cooldown_s": 1800,
      "description": "A vibration feature window exceeded its baseline threshold (see feature thresholds). A spike alone is not evidence of structural damage.", "params": {}},
+    {"rule_type": "vibration_threshold", "name": "Vibration above configured limit", "priority": "high", "cooldown_s": 900,
+     "description": "A complete vibration window exceeded an absolute rms/peak limit configured by the engineer (Settings → vibration).", "params": {}},
+    {"rule_type": "environment_threshold", "name": "Environmental condition outside configured range", "priority": "low", "cooldown_s": 3600,
+     "description": "Consecutive temperature/humidity samples outside the configured range or within the condensation margin. Exposure context only — not crack detection.", "params": {}},
     {"rule_type": "repeated_observation", "name": "Repeated observation", "priority": "medium", "cooldown_s": 86400,
      "description": "The same defect category was observed repeatedly on the same component (priority rule R5).", "params": {}},
     {"rule_type": "combined_visual_vibration", "name": "Combined visual + vibration review", "priority": "high", "cooldown_s": 86400,
@@ -241,19 +245,34 @@ def _combined_alert(db: Session, defect: Defect, feature_refs: list[str], detail
 
 
 def on_feature_anomaly(db: Session, feature: VibrationFeature, device: Device) -> list:
-    results = [
-        raise_alert(
+    reasons = feature.anomaly_reasons or []
+    ratio = f"{feature.baseline_ratio:.2f}" if feature.baseline_ratio is not None else "n/a (no baseline)"
+    results = []
+    absolute = [r for r in reasons if r.endswith("absolute_limit")]
+    if absolute:
+        th = feature.thresholds or {}
+        results.append(raise_alert(
+            db, rule_type="vibration_threshold", asset_id=device.asset_id, component_id=device.component_id, device_id=device.id,
+            dedup_key=f"vibration_threshold:{device.id}:{feature.source}",
+            title=f"Vibration above configured limit at {device.name}" + (" (SIMULATED)" if feature.source == "simulated" else ""),
+            message=f"Window {feature.window_start:%H:%M:%S}–{feature.window_end:%H:%M:%S}: rms_dyn={feature.rms_dyn:.4f} g "
+                    f"(limit {th.get('abs_rms_dyn_limit_g')}), peak_dyn={feature.peak_dyn:.4f} g (limit {th.get('abs_peak_dyn_limit_g')}).",
+            evidence=[Evidence("vibration_feature", f"VF-{feature.id}", "window above absolute limit",
+                               {"thresholds": th, "feature_version": feature.feature_version})],
+            data_source=feature.source, now=feature.window_end,
+        ))
+    if any(r.endswith("above_baseline") for r in reasons):
+        results.append(raise_alert(
             db, rule_type="vibration_anomaly", asset_id=device.asset_id, component_id=device.component_id, device_id=device.id,
             dedup_key=f"vibration_anomaly:{device.id}:{feature.source}",
             title=f"Vibration anomaly at {device.name}" + (" (SIMULATED)" if feature.source == "simulated" else ""),
             message=f"Window {feature.window_start:%H:%M:%S}–{feature.window_end:%H:%M:%S}: "
-                    f"rms_dyn={feature.rms_dyn:.4f} g, ratio to baseline v{feature.baseline_version}={feature.baseline_ratio:.2f}. "
-                    f"Reasons: {', '.join(feature.anomaly_reasons or [])}.",
+                    f"rms_dyn={feature.rms_dyn:.4f} g, ratio to baseline v{feature.baseline_version}={ratio}. "
+                    f"Reasons: {', '.join(reasons)}.",
             evidence=[Evidence("vibration_feature", f"VF-{feature.id}", "anomalous feature window",
                                {"thresholds": feature.thresholds, "feature_version": feature.feature_version, "baseline_id": feature.baseline_id})],
             data_source=feature.source, now=feature.window_end,
-        )
-    ]
+        ))
     log_event(db, event_type="sensor_anomaly", title=f"Vibration anomaly — {device.name}", asset_id=device.asset_id, component_id=device.component_id,
               device_id=device.id, ref_type="vibration_feature", ref_id=f"VF-{feature.id}", data_source=feature.source, ts=feature.window_end)
     # Re-evaluate visual findings on the same component (corroboration rule R6).

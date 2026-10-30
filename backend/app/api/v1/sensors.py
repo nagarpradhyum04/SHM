@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Uplo
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_or_404, get_session
-from app.models import Baseline, Device, SensorReading, VibrationFeature
-from app.schemas import BaselineIn, BaselineOut, FeatureOut, ReadingBatchIn, ReadingOut, SimulationGenerateIn
-from app.services import alert_engine, ingestion, simulation, vibration
+from app.models import Baseline, Device, EnvironmentReading, SensorReading, VibrationFeature
+from app.schemas import (BaselineIn, BaselineOut, EnvironmentBatchIn, EnvironmentReadingOut, FeatureOut, ReadingBatchIn, ReadingOut,
+                         SimulationGenerateIn)
+from app.services import alert_engine, environment, ingestion, simulation, vibration
 from app.services.events import broadcaster, log_event
 from app.services.settings_store import get_setting, set_setting
 from app.timeutil import ensure_utc, utcnow
@@ -23,8 +24,8 @@ def ingest_readings(body: ReadingBatchIn, x_device_token: str | None = Header(No
     dev = db.get(Device, body.device_id)
     if dev is None or not ingestion.authenticate(dev, x_device_token):
         raise HTTPException(401, "Unknown device or invalid device token")
-    if dev.device_type != "accelerometer":
-        raise HTTPException(400, "Device is not a sensor")
+    if dev.device_type not in ("accelerometer", "sensor_node"):
+        raise HTTPException(400, "Device does not measure acceleration")
     if dev.operational_status == "decommissioned":
         raise HTTPException(409, "Device is decommissioned")
     try:
@@ -178,3 +179,50 @@ def simulation_generate(body: SimulationGenerateIn, db: Session = Depends(get_se
     db.commit()
     broadcaster.publish("readings", {"source": "simulated"})
     return {"generated": total, "devices": [d.id for d in devs], "source": "simulated"}
+
+
+@router.post("/ingest/environment", status_code=202)
+def ingest_environment(body: EnvironmentBatchIn, x_device_token: str | None = Header(None), db: Session = Depends(get_session)):
+    """Temperature/humidity ingestion over HTTP (the MQTT bridge uses the same validation)."""
+    dev = db.get(Device, body.device_id)
+    if dev is None or not ingestion.authenticate(dev, x_device_token):
+        raise HTTPException(401, "Unknown device or invalid device token")
+    if dev.device_type == "camera":
+        raise HTTPException(400, "Cameras do not report environment readings")
+    try:
+        res = environment.ingest(db, dev, body.readings, "real")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.commit()
+    return res
+
+
+@router.get("/sensors/{device_id}/environment")
+def environment_series(device_id: str, source: str | None = Source, start: datetime | None = None, end: datetime | None = None,
+                       bucket_s: int = Query(0, ge=0, le=86400), limit: int = Query(2000, ge=1, le=50000), db: Session = Depends(get_session)):
+    """Raw (bucket_s=0) or aggregated temperature / humidity / dew point with 0 °C crossings."""
+    get_or_404(db, Device, device_id, "Device")
+    q = db.query(EnvironmentReading).filter(EnvironmentReading.device_id == device_id)
+    if source:
+        q = q.filter(EnvironmentReading.source == source)
+    if start:
+        q = q.filter(EnvironmentReading.ts >= ensure_utc(start))
+    if end:
+        q = q.filter(EnvironmentReading.ts <= ensure_utc(end))
+    rows = list(reversed(q.order_by(EnvironmentReading.ts.desc()).limit(limit).all()))
+    latest = rows[-1] if rows else None
+    return {
+        "device_id": device_id,
+        "latest": {**EnvironmentReadingOut.model_validate(latest).model_dump(),
+                   "dew_point_c": environment.dew_point_c(latest.temperature_c, latest.humidity_pct),
+                   "age_s": (utcnow() - latest.ts).total_seconds()} if latest else None,
+        "series": environment.aggregate(rows, bucket_s),
+        "note": "Ambient exposure context. Temperature and humidity cannot detect cracks.",
+    }
+
+
+@router.get("/mqtt/status")
+def mqtt_status():
+    from app.services.mqtt_bridge import bridge
+
+    return bridge.status()

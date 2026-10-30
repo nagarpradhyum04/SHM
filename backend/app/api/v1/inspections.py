@@ -22,8 +22,12 @@ router = APIRouter(tags=["inspections"])
 
 def _result(db, insp: Inspection, defects: list[Defect]):
     img = db.get(ImageRecord, insp.image_id) if insp.image_id else None
+    from app.api.v1.cameras import clip_out
+    from app.models import MediaClip
+
+    clips = db.query(MediaClip).filter(MediaClip.inspection_id == insp.id).all()
     return {"inspection": InspectionOut.model_validate(insp), "image": ImageOut.model_validate(img) if img else None,
-            "defects": [DefectOut.model_validate(d) for d in defects]}
+            "defects": [DefectOut.model_validate(d) for d in defects], "clips": [clip_out(c) for c in clips]}
 
 
 @router.post("/inspections/image", status_code=201)

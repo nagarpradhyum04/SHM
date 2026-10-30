@@ -50,7 +50,11 @@ async def lifespan(app: FastAPI):
         from app.background import run_loop
 
         task = asyncio.create_task(run_loop(s.background_interval_s, stop))
+    from app.services.mqtt_bridge import bridge
+
+    bridge.start()
     yield
+    bridge.stop()
     stop.set()
     if task:
         await task

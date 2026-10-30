@@ -60,6 +60,7 @@ def system_status(db: Session = Depends(get_session)):
         "device_auth_required": s.device_auth_required,
         "shared_device_key_configured": bool(s.device_shared_key),
         "background_enabled": s.background_enabled,
+        "mqtt": _mqtt_summary(),
         "max_upload_mb": s.max_upload_mb,
         "security": {
             "user_authentication": "not_implemented",
@@ -68,6 +69,13 @@ def system_status(db: Session = Depends(get_session)):
         "categories": DEFECT_CATEGORIES,
         "priority_levels": PRIORITY_LEVELS,
     }
+
+
+def _mqtt_summary() -> dict:
+    from app.services.mqtt_bridge import bridge
+
+    st = bridge.status()
+    return {k: st[k] for k in ("enabled", "state", "broker", "last_error", "counts")}
 
 
 @router.get("/settings")

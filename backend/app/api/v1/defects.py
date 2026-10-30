@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_or_404, get_session
+from app.api.v1.cameras import clip_out
+from app.models import MediaClip
 from app.models import AlertEvidence, Component, Defect, DefectEvent, Device, ImageRecord, Inspection
 from app.schemas import DefectEventOut, DefectIn, DefectOut, DefectPatch, ImageOut, InspectionOut, ProjectionIn
 from app.services.operations import DomainError, create_defect, update_defect
@@ -117,6 +119,7 @@ def detail(defect_id: str, db: Session = Depends(get_session)):
         "events": [DefectEventOut.model_validate(e) for e in events],
         "related": [DefectOut.model_validate(r) for r in related + later],
         "alert_ids": alert_ids,
+        "clips": [clip_out(c) for c in db.query(MediaClip).filter(MediaClip.inspection_id == d.inspection_id).all()] if d.inspection_id else [],
     }
 
 

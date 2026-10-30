@@ -13,6 +13,13 @@ from app.services.settings_store import get_setting
 
 router = APIRouter(tags=["devices"])
 
+DEFAULT_CAPABILITIES = {
+    "camera": ["image"],
+    "accelerometer": ["acceleration"],
+    "sensor_node": ["acceleration", "temperature", "humidity"],
+    "environment": ["temperature", "humidity"],
+}
+
 
 def _out(db, d: Device, th=None) -> DeviceOut:
     return DeviceOut.model_validate(d).model_copy(update={"connection": connection_status(db, d, thresholds=th)})
@@ -42,6 +49,8 @@ def register_device(body: DeviceIn, db: Session = Depends(get_session)):
         if comp.asset_id != body.asset_id:
             raise HTTPException(400, "Component belongs to a different asset")
     dev = Device(**body.model_dump())
+    if not dev.capabilities:
+        dev.capabilities = DEFAULT_CAPABILITIES[dev.device_type]
     token = issue_token(dev) if body.data_source == "real" else None
     db.add(dev)
     log_event(db, event_type="device_registered", title=f"Device {dev.name} registered ({dev.data_source})", asset_id=dev.asset_id,

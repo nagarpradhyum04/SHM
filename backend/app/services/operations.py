@@ -1,6 +1,7 @@
 """Domain operations shared by the API and the demo seeder."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -10,7 +11,7 @@ from app.models import Component, Defect, DefectEvent, Device, ImageRecord, Insp
 from app.services import alert_engine
 from app.services.events import broadcaster, log_event
 from app.services.imaging import ValidatedImage, assess_quality
-from app.services.inference import ModelUnavailableError, get_model_registry
+from app.services.inference import InferenceResult, ModelUnavailableError, get_model_registry
 from app.services.priority import apply_priority
 from app.services.settings_store import get_setting
 from app.services.spatial import METHODS
@@ -39,9 +40,30 @@ def store_image(db: Session, img: ValidatedImage, *, asset_id: str, component_id
     return rec
 
 
+@dataclass
+class InferenceOutcome:
+    status: str  # completed | model_unavailable | inference_failed
+    output: dict
+    result: InferenceResult | None
+
+
+def infer(db: Session, img: ValidatedImage) -> InferenceOutcome:
+    """Run the active model on an image without storing anything. Never fabricates a prediction."""
+    try:
+        model = get_model_registry().get((get_setting(db, "active_model") or {}).get("model_id"))
+    except ModelUnavailableError as exc:
+        return InferenceOutcome("model_unavailable", {"status": "model_unavailable", "message": str(exc)}, None)
+    try:
+        result = model.predict(img.bgr)
+    except Exception as exc:  # noqa: BLE001 - recorded, surfaced
+        return InferenceOutcome("inference_failed", {"status": "inference_failed", "error": str(exc)}, None)
+    return InferenceOutcome("completed", result.to_dict(), result)
+
+
 def run_image_inspection(db: Session, img: ValidatedImage, *, asset_id: str, component_id: str | None, device_id: str | None = None,
                          data_source: str = "uploaded", original_filename: str | None = None, observed_at: datetime | None = None,
-                         performed_by: str | None = None, notes: str | None = None) -> tuple[Inspection, list[Defect]]:
+                         performed_by: str | None = None, notes: str | None = None,
+                         inspection_type: str | None = None, inference: "InferenceOutcome | None" = None) -> tuple[Inspection, list[Defect]]:
     """Validate associations, store the image, run the configured model if any, record the inspection
     and create AI findings. Never fabricates a prediction when no model is installed."""
     _check_assoc(db, asset_id, component_id, device_id)
@@ -49,32 +71,20 @@ def run_image_inspection(db: Session, img: ValidatedImage, *, asset_id: str, com
     image = store_image(db, img, asset_id=asset_id, component_id=component_id, device_id=device_id, data_source=data_source,
                         original_filename=original_filename, captured_at=observed_at)
     insp = Inspection(id=new_id("INS"), asset_id=asset_id, component_id=component_id, device_id=device_id, image_id=image.id,
-                      inspection_type="camera_capture" if device_id else "image_upload", data_source=data_source,
+                      inspection_type=inspection_type or ("camera_capture" if device_id else "image_upload"), data_source=data_source,
                       performed_by=performed_by, notes=notes, observed_at=observed_at)
     defects: list[Defect] = []
-    registry = get_model_registry()
-    try:
-        model = registry.get((get_setting(db, "active_model") or {}).get("model_id"))
-    except ModelUnavailableError as exc:
-        insp.status = "model_unavailable"
-        insp.inference_output = {"status": "model_unavailable", "message": str(exc)}
-        model = None
-    if model is not None:
-        try:
-            result = model.predict(img.bgr)
-            insp.status = "completed"
-            insp.model_id, insp.model_version = result.model_id, result.model_version
-            insp.inference_output = result.to_dict()
-            insp.inference_ms = result.inference_ms
-        except Exception as exc:  # noqa: BLE001 - recorded, surfaced
-            insp.status = "inference_failed"
-            insp.inference_output = {"status": "inference_failed", "error": str(exc)}
-            result = None
+    outcome = inference if inference is not None else infer(db, img)
+    insp.status = outcome.status
+    insp.inference_output = outcome.output
+    result = outcome.result
+    if result is not None:
+        insp.model_id, insp.model_version, insp.inference_ms = result.model_id, result.model_version, result.inference_ms
     db.add(insp)
     db.flush()
     log_event(db, event_type="inspection", title=f"Image inspection {insp.id} ({insp.status.replace('_', ' ')})", asset_id=asset_id,
               component_id=component_id, device_id=device_id, ref_type="inspection", ref_id=insp.id, data_source=data_source, ts=observed_at)
-    if model is not None and insp.status == "completed":
+    if result is not None and insp.status == "completed":
         for det in result.detections:
             defects.append(create_defect(db, {
                 "asset_id": asset_id, "component_id": component_id, "inspection_id": insp.id, "image_id": image.id,

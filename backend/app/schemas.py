@@ -72,6 +72,7 @@ class AssetOut(ORM):
     model_kind: str
     model_ref: str | None
     geo_transform: dict | None
+    model_meta: dict | None = None
     monitoring_status: str
     is_demo: bool
     created_at: datetime
@@ -130,8 +131,10 @@ class ComponentOut(ORM):
 
 class DeviceIn(Schema):
     id: str = Field(pattern=r"^[A-Za-z0-9_\-]{2,64}$")
-    device_type: Literal["camera", "accelerometer"]
+    device_type: Literal["camera", "accelerometer", "sensor_node", "environment"]
     name: str = Field(min_length=1, max_length=200)
+    capabilities: list[Literal["acceleration", "temperature", "humidity", "image"]] | None = None
+    config: dict | None = None
     hardware_model: str | None = None
     asset_id: str
     component_id: str | None = None
@@ -158,6 +161,7 @@ class DeviceIn(Schema):
 
 class DevicePatch(Schema):
     name: str | None = None
+    capabilities: list[Literal["acceleration", "temperature", "humidity", "image"]] | None = None
     hardware_model: str | None = None
     component_id: str | None = None
     monitored_region: str | None = None
@@ -185,6 +189,8 @@ class DeviceOut(ORM):
     id: str
     device_type: str
     name: str
+    capabilities: list | None = None
+    config: dict | None = None
     hardware_model: str | None
     asset_id: str
     component_id: str | None
@@ -232,6 +238,21 @@ class ReadingBatchIn(Schema):
     device_id: str
     firmware_version: str | None = None
     readings: list[dict[str, Any]] = Field(min_length=1)
+
+
+class EnvironmentReadingOut(ORM):
+    ts: datetime
+    seq: int | None
+    temperature_c: float | None
+    humidity_pct: float | None
+    sensor_model: str | None
+    quality: str
+    source: str
+
+
+class EnvironmentBatchIn(Schema):
+    device_id: str
+    readings: list[dict[str, Any]] = Field(min_length=1, max_length=2000)
 
 
 class ReadingOut(ORM):

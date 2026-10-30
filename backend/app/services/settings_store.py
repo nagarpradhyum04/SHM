@@ -53,7 +53,22 @@ DEFAULTS: dict[str, Any] = {
         "peak_k_sigma": 6.0,
         "min_baseline_windows": 10,
         "min_window_completeness": 0.8,
+        # Absolute limits in g on the dynamic part of the acceleration magnitude. None = not configured.
+        "abs_rms_dyn_limit_g": None,
+        "abs_peak_dyn_limit_g": None,
     },
+    # Ambient temperature / humidity limits (None = not configured). These describe exposure conditions
+    # (thermal cycling, condensation, freeze-thaw); they do not detect cracks.
+    "environment": {
+        "temp_max_c": None,
+        "temp_min_c": None,
+        "humidity_max_pct": None,
+        "condensation_margin_c": None,
+        "consecutive_samples": 3,
+    },
+    # Webcam agent: once an AI finding from a camera is open, identical detections within this period are
+    # not stored again (prevents one persistent crack from creating a new record every few seconds).
+    "camera": {"repeat_suppression_s": 3600, "periodic_keep_s": 3600},
     "simulation": {"live_enabled": False, "sample_rate_hz": 10},
     "display": {"reduced_motion": False, "units": "metric"},
     "retention": {"raw_readings_days": 30, "features_days": 3650, "images_days": None},

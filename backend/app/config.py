@@ -40,6 +40,18 @@ class Settings(BaseSettings):
     background_enabled: bool = True
     background_interval_s: float = 5.0
 
+    # MQTT bridge (ESP32 sensor nodes publish to a broker such as Mosquitto on this machine).
+    # Topics: <prefix>/<device_id>/accel | env | status ; payloads must carry the device token.
+    mqtt_enabled: bool = True
+    mqtt_host: str = "127.0.0.1"
+    mqtt_port: int = 1883
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
+    mqtt_topic_prefix: str = "bridge"
+    mqtt_client_id: str = "structurasense-backend"
+    max_model_mb: float = 150.0
+    max_clip_mb: float = 50.0
+
     seed_demo_data: bool = True
     auto_migrate: bool = True
 
