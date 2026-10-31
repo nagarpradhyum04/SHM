@@ -110,7 +110,7 @@ await step("API base link returns the API index (not 404)", async () => {
 });
 
 await step("all sections render without page errors", async () => {
-  for (const p of ["assets", "devices", "sensors", "history", "rul", "settings#model", "settings#alerts", "settings#data", "settings#advanced"]) {
+  for (const p of ["assets", "devices", "sensors", "history", "rul", "settings#model", "settings#notifications", "settings#alerts", "settings#data", "settings#advanced"]) {
     await page.goto(`${BASE}/${p}`);
     await page.waitForTimeout(1200);
   }

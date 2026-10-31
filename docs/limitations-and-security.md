@@ -17,7 +17,9 @@
 | Webcam agent (live preview, frame analysis, event clips) | Implemented and tested with a video file; detections require an installed model |
 | Uploaded GLB models | Implemented for self-contained .glb without Draco/meshopt compression |
 | Image registration for before/after comparison | Not implemented — comparisons are explicitly side-by-side, unregistered |
-| Precise 3D localisation from images | Not implemented — camera-ray→bounding-box projection is labelled low/medium confidence |
+| Crack position in the image | Sliding-window (tiled) classification gives coarse regions at tile resolution; no pixel-level segmentation model is shipped |
+| Crack position on the 3D model | Camera ray through the crack centre intersected with the part's real surface mesh (GLB triangles / exact procedural geometry); confidence low (nominal lens) or medium (checkerboard-calibrated). Depends on the camera pose you place; not survey-grade |
+| Message alerts | Telegram / email / SMS (Twilio) / webhook, tested against local mock servers; real providers not reachable from the build environment |
 | Photogrammetry / survey localisation | Interface values only |
 | Calibrated model-to-world transform | Data model only; demo asset has none |
 | Map view | Requires `VITE_MAP_TILE_URL` and assets with coordinates |

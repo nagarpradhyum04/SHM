@@ -58,6 +58,8 @@ and delete `backend/data/`.
 * **Your own 3D model:** Infrastructure Assets → *Upload 3D model (.glb)*; named parts become components.
   Place devices from the Digital Twin with *Add device here* → *Edit placement* (pick on surface, aim cameras).
 
+* **Message alerts:** Settings → *Messages* — Telegram (with the crack photo), email, SMS or webhook (ntfy/Discord/Slack), including the crack's photo coordinates, 3D point and GPS.
+
 Step-by-step guide: [docs/hardware-integration.md](docs/hardware-integration.md).
 
 ## What you can do
@@ -132,7 +134,7 @@ node frontend/e2e/smoke.mjs             # browser smoke test against running ser
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` (61 tests, adding: fatigue RUL (ASTM E1049 rainflow reference example, EN 1993-1-9 S-N, end-to-end result within 2 % of a hand calculation), device deletion, API index, model install, MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 61 passed |
+| Backend `pytest` (72 tests, adding: tile-scan crack localisation, camera ray → real surface mesh (GLB and procedural), calibrated-intrinsics scaling + GPS, checkerboard calibration recovering a known lens within 2 %, message alerts via Telegram/SMS/webhook mock servers and SMTP with retries/escalation/filters, fatigue RUL (ASTM E1049 rainflow reference example, EN 1993-1-9 S-N, end-to-end result within 2 % of a hand calculation), device deletion, API index, model install, MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 72 passed |
 | Frontend `tsc` typecheck + `vitest` (20 tests, adding placement/aim maths, GLB node mapping, scene framing) | clean · 20 passed |
 | Browser e2e `frontend/e2e/smoke.mjs` (adds device placement tab, API index) | 11/11 passed |
 | Firmware `esp32_mqtt_node.ino` | g++ syntax/type check against API stubs; its payload-building code run on the host and accepted by the backend MQTT handler. **Not compiled for or flashed to an ESP32** (toolchain download blocked in this environment). |

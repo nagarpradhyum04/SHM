@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, API_BASE } from "@/api/client";
 import { useAlertRules, useApiMutation, useModels, useSettings, useSystemStatus } from "@/api/hooks";
 import type { AlertRule, MqttStatus } from "@/api/types";
+import { NotificationsSettings } from "@/components/NotificationsSettings";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, ErrorState, Field, KV, Loading, Notice, PageHeader, Segmented, Stat } from "@/components/ui";
 import { fmtBytes, fmtDateTime, fmtTime, humanize } from "@/lib/format";
@@ -242,9 +243,9 @@ function RuleRow({ r }: { r: AlertRule }) {
   );
 }
 
-type Tab = "overview" | "alerts" | "model" | "data" | "advanced";
+type Tab = "overview" | "alerts" | "notifications" | "model" | "data" | "advanced";
 const TABS: { k: Tab; label: string }[] = [
-  { k: "overview", label: "Overview" }, { k: "alerts", label: "Alert limits & rules" }, { k: "model", label: "AI model" },
+  { k: "overview", label: "Overview" }, { k: "alerts", label: "Alert limits & rules" }, { k: "notifications", label: "Messages" }, { k: "model", label: "AI model" },
   { k: "data", label: "Data & devices" }, { k: "advanced", label: "Advanced" },
 ];
 
@@ -304,6 +305,7 @@ export default function SettingsPage() {
             </Card>
           </div>
         )}
+        {tab === "notifications" && <NotificationsSettings />}
         {tab === "model" && <ModelSection />}
         {tab === "data" && (
           <div className="grid gap-3 xl:grid-cols-2">

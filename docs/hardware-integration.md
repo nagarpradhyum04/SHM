@@ -124,6 +124,43 @@ condensation margin (air temperature − dew point), after N consecutive samples
 **Important:** crack detection needs a trained model (`backend/ml/README.md`). Without one the agent
 still streams the live preview and stores the hourly reference photos, but nothing is "detected".
 
+## 7b. Where is the crack? (coordinates)
+
+When the model finds a crack in a webcam frame, the backend scans the frame in overlapping tiles and records:
+
+* **In the photo** — bounding box and centre in pixels of the crack region(s) (tile resolution: coarse, not a pixel-exact outline);
+* **On the 3D model** — the camera ray through the crack centre is intersected with the part's real surface (your
+  uploaded GLB triangles, or the demo bridge's exact geometry) → local model coordinates + surface normal, shown as a
+  marker on the twin;
+* **GPS** — only when the structure has a model-to-world transform (Structures → edit asset); flagged approximate if
+  that transform isn't surveyed.
+
+Accuracy depends on how well the camera is placed (Device Registry → Placement) and on its lens. Measure the lens once:
+
+```bash
+cd backend
+.venv/bin/python -m edge.calibrate_camera --source 1 --device-id WEBCAM-01
+```
+
+Print a 9×6 (inner corners) checkerboard with 25 mm squares, hold it in ~15 positions; the tool saves fx, fy, cx, cy
+and lens distortion on the camera. Calibrated cameras are rated **medium** location confidence instead of **low**.
+
+## 7c. Message alerts (Telegram, email, SMS, webhook)
+
+Settings → **Messages**. Choose the minimum priority (default: medium and above) and set up one or more channels:
+
+* **Telegram** (free, sends the crack photo): @BotFather → `/newbot` → token; message your bot, then open
+  `https://api.telegram.org/bot<token>/getUpdates` to read your chat id. Paste both, **Send test**.
+* **Email**: any SMTP account (Gmail: `smtp.gmail.com`, 587, STARTTLS, App Password). Photo attached.
+* **SMS**: Twilio account SID/token/number (paid).
+* **Webhook**: Discord/Slack incoming webhook, or `https://ntfy.sh/<your-topic>` with format `ntfy` for free phone pushes.
+
+Each message contains the alert, the part, the crack's photo coordinates, 3D point, GPS + map link (when known) and a
+link to the alert in the dashboard. Messages are sent from a background queue with retries; Settings → Messages shows
+the delivery log. Simulated/demo alerts are not messaged unless you enable it. Credentials can also be set in
+`backend/.env` (`SS_TELEGRAM_BOT_TOKEN`, `SS_SMTP_HOST`, …); set `SS_PUBLIC_DASHBOARD_URL` to the address you open the
+dashboard on (e.g. `http://192.168.29.107:5173`) so links in messages work from your phone.
+
 ## 8. Your own 3D model
 
 Infrastructure Assets → *Register asset* → **3D structural model → Upload 3D model (.glb)**.

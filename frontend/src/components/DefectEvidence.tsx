@@ -31,9 +31,10 @@ export function ClipPlayer({ clip }: { clip: Clip }) {
 
 export function EvidenceImage({ image, defect, className }: { image: ImageRec; defect?: Defect; className?: string }) {
   const [failed, setFailed] = useState(false);
-  const region = defect?.image_region as { bbox?: number[] | null; point_px?: number[] } | null | undefined;
+  const region = defect?.image_region as { bbox?: number[] | null; point_px?: number[]; regions?: { bbox: number[]; max_prob: number }[] } | null | undefined;
   const bbox = region?.bbox;
   const pt = region?.point_px;
+  const others = (region?.regions ?? []).slice(1);
   return (
     <figure className={clsx("relative overflow-hidden rounded-md border border-white/10 bg-black", className)}>
       {failed ? (
@@ -42,6 +43,10 @@ export function EvidenceImage({ image, defect, className }: { image: ImageRec; d
         <div className="relative">
           <img src={imageUrl(image.id)} alt={`Evidence ${image.id}`} className="block w-full" onError={() => setFailed(true)} />
           <svg viewBox={`0 0 ${image.width} ${image.height}`} className="pointer-events-none absolute inset-0 h-full w-full">
+            {others.map((r, i) => (
+              <rect key={i} x={r.bbox[0]} y={r.bbox[1]} width={r.bbox[2] - r.bbox[0]} height={r.bbox[3] - r.bbox[1]} fill="none" stroke="#fb923c"
+                strokeWidth={image.width / 250} strokeDasharray={`${image.width / 60} ${image.width / 90}`} />
+            ))}
             {bbox && <rect x={bbox[0]} y={bbox[1]} width={bbox[2] - bbox[0]} height={bbox[3] - bbox[1]} fill="none" stroke="#22d3ee" strokeWidth={image.width / 150} />}
             {pt && <circle cx={pt[0]} cy={pt[1]} r={image.width / 40} fill="none" stroke="#22d3ee" strokeWidth={image.width / 200} />}
           </svg>
@@ -103,6 +108,36 @@ function ReviewControls({ d }: { d: Defect }) {
   );
 }
 
+const METHOD_TEXT: Record<string, string> = {
+  camera_ray_mesh: "camera ray onto the part's surface mesh",
+  camera_ray_aabb: "camera ray onto the part's bounding box (approximate)",
+  manual_surface_pick: "point picked on the 3D model",
+  manual_component: "part only",
+};
+
+/** Where the crack is: in the photo, on the 3D model, and on the map — each only when known. */
+function CrackPosition({ d }: { d: Defect }) {
+  const r = d.image_region as { bbox?: number[]; point_px?: number[]; regions?: unknown[]; method?: string; tile_px?: number } | null;
+  if (!r?.bbox && d.pos_x === null && d.latitude === null) return null;
+  return (
+    <div className="rounded-md border border-accent/20 bg-accent/[0.04] p-2">
+      <div className="label mb-1">Crack position</div>
+      {r?.bbox && (
+        <KV k="In the photo" v={<span className="mono">x {r.bbox[0].toFixed(0)}–{r.bbox[2].toFixed(0)}, y {r.bbox[1].toFixed(0)}–{r.bbox[3].toFixed(0)} px
+          {r.point_px && <> · centre ({r.point_px[0].toFixed(0)}, {r.point_px[1].toFixed(0)})</>}
+          {(r.regions?.length ?? 0) > 1 && <> · {r.regions!.length} regions</>}</span>} />
+      )}
+      {r?.method && <div className="pl-[118px] text-[10px] text-slate-500">{r.method}{r.tile_px ? `, ${r.tile_px} px tiles` : ""} — not a pixel-exact outline</div>}
+      {d.pos_x !== null && <KV k="On the 3D model" v={<span className="mono">({d.pos_x.toFixed(2)}, {d.pos_y!.toFixed(2)}, {d.pos_z!.toFixed(2)}) m</span>} />}
+      {d.pos_x !== null && <KV k="Located by" v={`${METHOD_TEXT[d.localization_method] ?? d.localization_method} · confidence ${d.location_confidence}`} />}
+      {d.latitude !== null && d.longitude !== null && (
+        <KV k="GPS" v={<a className="mono text-accent-soft hover:underline" target="_blank" rel="noreferrer"
+          href={`https://maps.google.com/?q=${d.latitude},${d.longitude}`}>{d.latitude.toFixed(6)}, {d.longitude.toFixed(6)}</a>} />
+      )}
+    </div>
+  );
+}
+
 export function DefectEvidenceBody({ data, compact }: { data: DefectDetail; compact?: boolean }) {
   const d = data.defect;
   const show3d = useShowIn3D();
@@ -138,10 +173,10 @@ export function DefectEvidenceBody({ data, compact }: { data: DefectDetail; comp
         {out?.threshold !== undefined && <KV k="Threshold" v={out.threshold} mono />}
         <KV k="Location" v={`${humanize(d.location_kind)}-level · ${humanize(d.localization_method)}`} />
         <KV k="Loc. confidence" v={CONF_TEXT[d.location_confidence] ?? d.location_confidence} />
-        {d.pos_x !== null && <KV k="Model coords" v={`${d.pos_x.toFixed(2)}, ${d.pos_y!.toFixed(2)}, ${d.pos_z!.toFixed(2)} (local m)`} mono />}
         {d.localization_notes && <KV k="Loc. notes" v={d.localization_notes} />}
         {d.measured_extent && <KV k="Measured extent" v={JSON.stringify(d.measured_extent)} mono />}
       </div>
+      <CrackPosition d={d} />
       {d.location_confidence !== "high" && (
         <Notice tone="warn"><MapPin className="mr-1 inline h-3 w-3" />Location is {d.location_kind === "component" ? "known only at component level" : "approximate"} — not survey-grade.</Notice>
       )}
