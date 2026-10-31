@@ -23,15 +23,15 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data-dir", required=True, type=Path)
+    ap.add_argument("--data-dir", required=True, type=Path, help="extracted dataset folder, any parent of it, or the downloaded .zip")
     ap.add_argument("--api", default="http://127.0.0.1:8000")
     ap.add_argument("--out", type=Path, default=ROOT / "model_store_build" / "crack-cnn-metu")
     ap.add_argument("--epochs", type=int, default=6)
     ap.add_argument("--size", type=int, default=96)
     ap.add_argument("--limit", type=int, default=6000, help="images per class to use (0 = all 20,000)")
     args = ap.parse_args()
-    if not (args.data_dir / "Positive").is_dir() or not (args.data_dir / "Negative").is_dir():
-        raise SystemExit(f"{args.data_dir} must contain the extracted 'Positive' and 'Negative' folders.")
+    args.data_dir = find_dataset(args.data_dir)
+    print("Dataset folder:", args.data_dir)
     cmd = [sys.executable, "-m", "ml.train_crack_classifier", "--data-dir", str(args.data_dir), "--out", str(args.out),
            "--epochs", str(args.epochs), "--size", str(args.size), "--limit", str(args.limit), "--model-id", "crack-cnn-metu",
            "--dataset-name", "Concrete Crack Images for Classification (Özgenel)", "--dataset-version", "2",
@@ -41,6 +41,28 @@ def main() -> None:
     url = args.api.rstrip("/") + "/api/v1/models/upload"
     res = post_multipart_two(url, args.out / "model.onnx", args.out / "model_card.json")
     print("Installed:", res)
+
+
+def find_dataset(path: Path) -> Path:
+    """Accept the extracted folder, any parent of it, or the downloaded .zip (extracted next to it)."""
+    path = path.expanduser().resolve()
+    if path.is_file() and path.suffix.lower() == ".zip":
+        import zipfile
+
+        dest = path.with_suffix("")
+        if not dest.exists():
+            print(f"Extracting {path.name} …")
+            with zipfile.ZipFile(path) as z:
+                z.extractall(dest)
+        path = dest
+    if not path.is_dir():
+        raise SystemExit(f"{path} is not a folder or .zip file.")
+    for cand in [path, *sorted(p for p in path.rglob("*") if p.is_dir())]:
+        if (cand / "Positive").is_dir() and (cand / "Negative").is_dir():
+            return cand
+    if any(path.rglob("*.rar")):
+        raise SystemExit(f"Found a .rar inside {path}: extract it with 7-Zip/WinRAR (right-click → Extract here), then run again.")
+    raise SystemExit(f"No folder with 'Positive' and 'Negative' sub-folders found under {path}.")
 
 
 def post_multipart_two(url: str, onnx: Path, card: Path) -> dict:

@@ -75,6 +75,36 @@ What it sends (every message carries the token):
 Your earlier test sketch published made-up values flagged `"simulated": true` to `bridge/sensors`;
 the backend lists such messages in the MQTT panel as rejected and never stores them as real data.
 
+### 4b. Keep your own "Smart Bridge Monitor" sketch (summaries on `bridge/sensors`)
+
+No reflash needed. Its payload `{"vib","peak","level","tilt","temp","hum","mpu","dht","simulated":false}`
+every 0.5 s is accepted once the topic is bound to a device:
+
+1. Device Registry → your sensor node → **Edit** → *MQTT options*: **MQTT topic** `bridge/sensors`,
+   tick **Accept without token** (only on a private network — anyone who can publish to the broker can
+   then write to this device), environment sensor **DHT11** → Save.
+2. Sensor Analytics shows the live `vib` / `peak` / `tilt` chart, the node's own level (CALM/…), and
+   temperature/humidity. Every 60 s a window (RMS of `vib`, max `peak`, mean tilt) is checked against
+   the vibration limits / baseline; Settings → *Alert limits* → **Tilt change limit (°)** alerts when the
+   mean tilt moves away from the reference (first complete window; reset in Sensor Analytics).
+3. Limitation: summaries contain no raw samples, so **Remaining Life (fatigue)** needs
+   `firmware/esp32_mqtt_node/` (100 Hz raw stream). You can switch between the two sketches any time.
+
+### 4c. Settings shows "0 received"
+
+The backend connects to `SS_MQTT_HOST` (default `127.0.0.1:1883`). On Windows the Mosquitto installer
+also starts a **Mosquitto service** that listens only on 127.0.0.1 — the ESP32 then talks to the broker
+you started with `listener 1883 0.0.0.0`… or to nothing. Check:
+
+```
+mosquitto_sub -h 127.0.0.1 -t "bridge/#" -v          # what the backend sees
+mosquitto_sub -h 192.168.29.107 -t "bridge/#" -v     # what the ESP32 reaches (your laptop IP)
+```
+
+If only the second shows messages: `net stop mosquitto` (admin prompt) and start your configured broker,
+or set `SS_MQTT_HOST=192.168.29.107` in `backend/.env` and restart the backend. If neither shows messages:
+allow TCP 1883 in Windows Firewall and check `MQTT_HOST` in the sketch is the laptop's current IPv4.
+
 ## 5. Vibration alerts ("if it exceeds the limit")
 
 The backend cuts the 100 Hz stream into 60 s windows and computes `rms_dyn` (RMS of the dynamic
@@ -113,16 +143,38 @@ condensation margin (air temperature − dew point), after N consecutive samples
    .venv/bin/python -m edge.camera_agent --list-cameras          # Windows: .venv\Scripts\python -m edge.camera_agent --list-cameras
    .venv/bin/python -m edge.camera_agent --device-id WEBCAM-01 --token <token> --source 1
    ```
-   (on Windows the agent opens webcams through DirectShow; `--interval 5` seconds between analysed frames;
-   `--pre 5 --post 5` clip seconds; `--bind 0.0.0.0 --public-host <laptop IP>` to view the live preview
-   from other machines.)
-3. Every interval the newest frame goes to the backend, which runs the installed model. On a finding it
-   stores the **photo**, creates the finding on that component (shown on the 3D model), raises an alert,
-   and the agent uploads a **WebM clip** of the seconds around the detection. Repeated detections of an
-   already-open finding are not stored again for 1 h. One reference photo per hour is kept regardless.
+   (on Windows the agent opens webcams through DirectShow; `--interval 2` seconds between analysed frames;
+   `--pre 30 --post 30` clip seconds (default); `--bind 0.0.0.0 --public-host <laptop IP>` if the backend
+   runs on another machine.)
+3. Open **Live cameras** (Monitor menu): the live webcam view is relayed through the backend.
+4. Every interval the newest frame goes to the backend, which runs the installed model (whole frame +
+   tile scan). On a finding:
+   * the **photo of that instant** is stored at once, with the crack's box, photo-pixel coordinates,
+     3D point on the model and GPS (if the asset has coordinates) — *Live cameras* → click a detection →
+     *Download photo*, or `GET /api/v1/defects/<id>/annotated.jpg`;
+   * a finding is created on that component (marker on the 3D model), an alert is raised and message
+     alerts (Telegram etc.) send the annotated photo with the details;
+   * the agent keeps recording and, 30 s later, uploads **one WebM clip: 30 s before + 30 s after** the
+     detection (it holds ~60 s of frames in memory as JPEG, ≈ 60–150 MB at 640×480 / 15 fps).
+   Repeated detections of an already-open finding are not stored again for 1 h. One reference photo per
+   hour is kept regardless.
 
-**Important:** crack detection needs a trained model (`backend/ml/README.md`). Without one the agent
-still streams the live preview and stores the hourly reference photos, but nothing is "detected".
+**Important:** crack detection needs a trained model. Without one the agent still streams the live view
+and stores the hourly reference photos, but nothing is "detected". Train the CNN on your laptop (the
+dataset cannot be bundled; ~250 MB download, CC BY 4.0):
+
+1. Download *Concrete Crack Images for Classification* from https://data.mendeley.com/datasets/5y9wdsg2zt/2
+   (if it contains a `.rar`, extract it with 7-Zip).
+2. With the backend running:
+   ```
+   cd backend
+   .venv\Scripts\pip install torch onnx
+   .venv\Scripts\python -m ml.setup_crack_model --data-dir "C:\Users\<you>\Downloads\5y9wdsg2zt-2.zip"
+   ```
+   (`--data-dir` takes the zip, the extracted folder or any parent of `Positive/` + `Negative/`.) It trains a
+   small CNN, reports precision/recall/F1 on a held-out test split and installs it; Settings → *AI model* then
+   shows it. Those metrics are for that dataset's 227×227 close-ups — test it on your own camera images
+   before relying on it.
 
 ## 7b. Where is the crack? (coordinates)
 

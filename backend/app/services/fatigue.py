@@ -211,7 +211,7 @@ def estimate(db: Session, component_id: str, now=None) -> RULResult:
         if db.query(SensorSummary.id).filter(SensorSummary.device_id == device.id, SensorSummary.ts >= since).first():
             return _unavailable(db, comp.asset_id, component_id, [
                 f"{device.id} sends 0.5-second summaries (RMS/peak), not the raw acceleration samples needed to count individual load cycles. "
-                "Flash the raw-stream firmware (firmware/esp32_bridge_node) to enable the fatigue estimate."], cfg, source)
+                "Flash firmware/esp32_mqtt_node (streams raw 100 Hz acceleration) to enable the fatigue estimate."], cfg, source)
         return _unavailable(db, comp.asset_id, component_id, [f"No {source} readings from {device.id} in the last {cfg['observation_hours']} h."], cfg, source)
     ts = np.array([r[0].timestamp() for r in rows])
     a = np.array([[r[1], r[2], r[3]] for r in rows], float)

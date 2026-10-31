@@ -12,8 +12,8 @@ interfaces for ESP32 + MPU6050 sensors and future cameras.
 > **Honesty constraints.** No trained AI model, real sensor data or real structure is included. The
 > demonstration bridge is procedural; its images are synthetic and watermarked; its sensor data is
 > simulated; all of it is labelled as such in the UI, API and reports. Review priorities are rule-based
-> and configurable — they are **not** certified structural assessments. No remaining-useful-life
-> prediction is made. See [docs/limitations-and-security.md](docs/limitations-and-security.md).
+> and configurable — they are **not** certified structural assessments. Remaining life is a fatigue
+> estimate from measured cycles and engineer-entered assumptions, shown with its uncertainty — not a certified prediction. See [docs/limitations-and-security.md](docs/limitations-and-security.md).
 
 ## Quick start
 
@@ -52,9 +52,12 @@ and delete `backend/data/`.
 * **ESP32 + MPU6050 + DHT11 → MQTT:** run Mosquitto on the laptop, register a *Sensor node*, flash
   `firmware/esp32_mqtt_node/` (fill in `secrets.h`). Readings, vibration windows, temperature/humidity and
   alerts appear live; Settings → *IoT connection (MQTT)* shows every message and why any was rejected.
+* **Your own summary sketch** (`bridge/sensors`, vib/peak/tilt/temp/hum): bind the topic to the device
+  (Device Registry → Edit → MQTT options) — no reflash.
 * **USB webcam:** register a *Camera*, run `python -m edge.camera_agent --device-id … --token …` in `backend/`.
-  Frames are analysed by the installed model; findings keep the photo and a short clip. (Crack detection
-  requires a trained model — none is shipped.)
+  *Live cameras* shows the live view; on a detection the annotated photo (box, pixel/3D/GPS coordinates) is
+  saved at once and a clip of the 30 s before + 30 s after follows. Crack detection requires a trained model —
+  none is shipped; `python -m ml.setup_crack_model --data-dir <downloaded zip>` trains and installs one.
 * **Your own 3D model:** Infrastructure Assets → *Upload 3D model (.glb)*; named parts become components.
   Place devices from the Digital Twin with *Add device here* → *Edit placement* (pick on surface, aim cameras).
 
@@ -130,11 +133,11 @@ and `VITE_MAP_ATTRIBUTION` for the map view.
 node frontend/e2e/smoke.mjs             # browser smoke test against running servers (needs `playwright`)
 ```
 
-### Test results (recorded in the development environment, 2026-10-30)
+### Test results (recorded in the development environment, 2026-10-31)
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` (72 tests, adding: tile-scan crack localisation, camera ray → real surface mesh (GLB and procedural), calibrated-intrinsics scaling + GPS, checkerboard calibration recovering a known lens within 2 %, message alerts via Telegram/SMS/webhook mock servers and SMTP with retries/escalation/filters, fatigue RUL (ASTM E1049 rainflow reference example, EN 1993-1-9 S-N, end-to-end result within 2 % of a hand calculation), device deletion, API index, model install, MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 72 passed |
+| Backend `pytest` (76 tests, adding: ESP32 summary payloads (your exact CALM/SEVERE messages) → windows, limits and tilt-change alerts, live-view relay + 30 s pre/post clip duration + annotated photo + per-camera detections, tile-scan crack localisation, camera ray → real surface mesh (GLB and procedural), calibrated-intrinsics scaling + GPS, checkerboard calibration recovering a known lens within 2 %, message alerts via Telegram/SMS/webhook mock servers and SMTP with retries/escalation/filters, fatigue RUL (ASTM E1049 rainflow reference example, EN 1993-1-9 S-N, end-to-end result within 2 % of a hand calculation), device deletion, API index, model install, MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 76 passed |
 | Frontend `tsc` typecheck + `vitest` (20 tests, adding placement/aim maths, GLB node mapping, scene framing) | clean · 20 passed |
 | Browser e2e `frontend/e2e/smoke.mjs` (adds device placement tab, API index) | 11/11 passed |
 | Firmware `esp32_mqtt_node.ino` | g++ syntax/type check against API stubs; its payload-building code run on the host and accepted by the backend MQTT handler. **Not compiled for or flashed to an ESP32** (toolchain download blocked in this environment). |
