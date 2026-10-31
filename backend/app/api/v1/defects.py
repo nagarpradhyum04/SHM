@@ -153,6 +153,9 @@ def project(body: ProjectionIn, db: Session = Depends(get_session)):
     cam = get_or_404(db, Device, body.camera_id, "Camera")
     comp = get_or_404(db, Component, body.component_id, "Component")
     try:
-        return project_pixel_to_component(cam, comp, body.u, body.v)
+        from app.models import Asset
+        from app.services.storage import get_storage
+
+        return project_pixel_to_component(cam, comp, body.u, body.v, asset=db.get(Asset, comp.asset_id), storage=get_storage())
     except SpatialMappingError as exc:
         raise HTTPException(400, str(exc)) from exc

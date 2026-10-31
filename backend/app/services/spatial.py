@@ -9,9 +9,11 @@ Coordinate systems are kept distinct:
 Localization hierarchy (method → best achievable confidence):
 1. manual_component       → component_only (position unknown on the component)
 2. manual_surface_pick    → approximate (engineer picked a point on the 3D surface)
-3. camera_ray_aabb        → low (uncalibrated intrinsics) / medium (calibrated):
-                            ray from camera pose through pixel, intersected with the
-                            component's axis-aligned bounding box (coarse proxy for its surface)
+3. camera_ray_mesh        → low (uncalibrated) / medium (calibrated intrinsics): ray from the camera
+                            pose through the pixel, intersected with the component's real surface
+                            (uploaded GLB triangles, or exact procedural boxes/beams)
+   camera_ray_aabb        → low / medium: fallback when no surface mesh is available —
+                            intersection with the axis-aligned bounding box
 4. photogrammetry / survey → high — interface only, not implemented
 5. segmentation overlay   – polyline in model coords, only from validated mapping
 """
@@ -27,6 +29,7 @@ METHODS = {
     "manual_component": "component_only",
     "manual_surface_pick": "approximate",
     "camera_ray_aabb": "low",
+    "camera_ray_mesh": "low",
     "photogrammetry": "high",
     "survey": "high",
 }
@@ -54,19 +57,34 @@ def look_at_angles(pos, target) -> tuple[float, float]:
     return yaw, pitch
 
 
-def camera_intrinsics(cam: Device) -> tuple[float, float, float, float, bool]:
+def camera_intrinsics(cam: Device, image_size: tuple[int, int] | None = None) -> tuple[float, float, float, float, bool]:
+    """(fx, fy, cx, cy, calibrated) in pixels of an image of ``image_size`` (w, h).
+    Calibrated intrinsics are scaled from the resolution they were measured at."""
     intr = cam.intrinsics or {}
     if {"fx", "fy", "cx", "cy"} <= intr.keys():
-        return intr["fx"], intr["fy"], intr["cx"], intr["cy"], bool(intr.get("calibrated"))
-    if not (cam.fov_deg and cam.resolution_w and cam.resolution_h):
+        fx, fy, cx, cy = (float(intr[k]) for k in ("fx", "fy", "cx", "cy"))
+        if image_size and intr.get("width") and intr.get("height"):
+            sx, sy = image_size[0] / float(intr["width"]), image_size[1] / float(intr["height"])
+            fx, cx, fy, cy = fx * sx, cx * sx, fy * sy, cy * sy
+        return fx, fy, cx, cy, bool(intr.get("calibrated"))
+    w, h = image_size if image_size else (cam.resolution_w, cam.resolution_h)
+    if not (cam.fov_deg and w and h):
         raise SpatialMappingError("Camera has neither intrinsics nor field-of-view + resolution configured.")
-    f = (cam.resolution_h / 2) / math.tan(math.radians(cam.fov_deg) / 2)  # vertical FOV
-    return f, f, cam.resolution_w / 2, cam.resolution_h / 2, False
+    f = (h / 2) / math.tan(math.radians(cam.fov_deg) / 2)  # vertical FOV
+    return f, f, w / 2, h / 2, False
 
 
-def pixel_ray(cam: Device, u: float, v: float) -> tuple[np.ndarray, np.ndarray, bool]:
-    fx, fy, cx, cy, calibrated = camera_intrinsics(cam)
-    d_cam = np.array([(u - cx) / fx, -(v - cy) / fy, -1.0])
+def pixel_ray(cam: Device, u: float, v: float, image_size: tuple[int, int] | None = None) -> tuple[np.ndarray, np.ndarray, bool]:
+    fx, fy, cx, cy, calibrated = camera_intrinsics(cam, image_size)
+    dist = (cam.intrinsics or {}).get("distortion")
+    if calibrated and dist:
+        import cv2
+
+        k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+        nx, ny = cv2.undistortPoints(np.array([[[u, v]]], np.float64), k, np.array(dist, np.float64)).reshape(2)
+        d_cam = np.array([nx, -ny, -1.0])  # undistorted normalised coordinates (lens distortion removed)
+    else:
+        d_cam = np.array([(u - cx) / fx, -(v - cy) / fy, -1.0])
     d = rotation_matrix(cam.yaw_deg, cam.pitch_deg, cam.roll_deg) @ d_cam
     return np.array([cam.model_x, cam.model_y, cam.model_z]), d / np.linalg.norm(d), calibrated
 
@@ -96,28 +114,39 @@ def ray_aabb(origin: np.ndarray, direction: np.ndarray, bmin, bmax) -> tuple[np.
     return origin + t * direction, normal
 
 
-def project_pixel_to_component(cam: Device, comp: Component, u: float, v: float) -> dict:
+def project_pixel_to_component(cam: Device, comp: Component, u: float, v: float, image_size: tuple[int, int] | None = None,
+                               asset: Asset | None = None, storage=None) -> dict:
+    """Pixel → point on the component: real surface triangles when available, otherwise its bounding box."""
+    from app.services.meshes import component_triangles, ray_triangles
+
     if cam.device_type != "camera":
         raise SpatialMappingError("Device is not a camera.")
-    if not comp.bbox:
-        raise SpatialMappingError("Component has no bounding box for projection.")
-    origin, direction, calibrated = pixel_ray(cam, u, v)
-    hit = ray_aabb(origin, direction, comp.bbox["min"], comp.bbox["max"])
+    origin, direction, calibrated = pixel_ray(cam, u, v, image_size)
+    tris = component_triangles(comp, asset, storage) if storage is not None or comp.geometry else None
+    hit, method = None, None
+    if tris is not None and len(tris):
+        h = ray_triangles(origin, direction, tris)
+        if h is not None:
+            hit, method = (h[1], h[2]), "camera_ray_mesh"
+    if hit is None and comp.bbox:
+        hit = ray_aabb(origin, direction, comp.bbox["min"], comp.bbox["max"])
+        method = "camera_ray_aabb" if hit is not None else None
     if hit is None:
         raise SpatialMappingError("The ray through this pixel does not intersect the selected component.")
     point, normal = hit
+    surface = "the component's surface mesh" if method == "camera_ray_mesh" else "the component's bounding box (no surface mesh available)"
     return {
-        "method": "camera_ray_aabb",
+        "method": method,
         "location_confidence": "medium" if calibrated else "low",
         "position": [round(float(c), 3) for c in point],
-        "normal": [float(c) for c in normal],
+        "normal": [round(float(c), 4) for c in normal],
+        "pixel": [round(float(u), 1), round(float(v), 1)],
         "ray_origin": origin.tolist(),
         "ray_direction": direction.tolist(),
         "intrinsics_calibrated": calibrated,
-        "notes": (
-            "Approximate: ray intersected with the component's bounding box, not its true surface. "
-            + ("Intrinsics calibrated." if calibrated else "Intrinsics derived from nominal FOV (uncalibrated).")
-        ),
+        "notes": (f"Camera ray through pixel ({u:.0f}, {v:.0f}) intersected with {surface}. "
+                  + ("Calibrated intrinsics; accuracy also depends on the surveyed camera pose." if calibrated
+                     else "Intrinsics derived from the nominal field of view (uncalibrated) — calibrate the camera for better accuracy.")),
     }
 
 

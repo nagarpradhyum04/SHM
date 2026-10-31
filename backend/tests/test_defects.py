@@ -78,7 +78,7 @@ def test_spatial_projection(seeded_client):
     r = seeded_client.post(f"{API}/spatial/project", json={"camera_id": "CAM-01", "component_id": "GIR-M-S", "u": 960, "v": 540})
     assert r.status_code == 200
     p = r.json()
-    assert p["method"] == "camera_ray_aabb" and p["location_confidence"] == "low" and not p["intrinsics_calibrated"]
+    assert p["method"] == "camera_ray_mesh" and p["location_confidence"] == "low" and not p["intrinsics_calibrated"]
     bbox = next(c for c in seeded_client.get(f"{API}/assets/DEMO-BRIDGE-01/components").json() if c["id"] == "GIR-M-S")["bbox"]
     assert all(bbox["min"][i] - 1e-6 <= p["position"][i] <= bbox["max"][i] + 1e-6 for i in range(3))
     miss = seeded_client.post(f"{API}/spatial/project", json={"camera_id": "CAM-01", "component_id": "ABT-E", "u": 960, "v": 540})

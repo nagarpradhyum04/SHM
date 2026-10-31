@@ -12,6 +12,7 @@ from app.services import alert_engine
 from app.services.events import broadcaster, log_event
 from app.services.imaging import ValidatedImage, assess_quality
 from app.services.inference import InferenceResult, ModelUnavailableError, get_model_registry
+from app.services.inference.base import Detection
 from app.services.priority import apply_priority
 from app.services.settings_store import get_setting
 from app.services.spatial import METHODS
@@ -55,9 +56,60 @@ def infer(db: Session, img: ValidatedImage) -> InferenceOutcome:
         return InferenceOutcome("model_unavailable", {"status": "model_unavailable", "message": str(exc)}, None)
     try:
         result = model.predict(img.bgr)
+        if hasattr(model, "localize"):
+            # Tile scan: finds small cracks a whole-frame classification would dilute, and says WHERE they are
+            # (coarse map at tile resolution, not a pixel segmentation).
+            loc = model.localize(img.bgr)
+            result.raw["localization"] = loc
+            if loc["regions"]:
+                top = loc["regions"][0]
+                if not result.detections:
+                    lbl = model.positive_labels[0]
+                    result.detections.append(Detection(category=(model.card.get("category_map") or {}).get(lbl, "unclassified"), label=lbl,
+                                                       confidence=top["max_prob"], bbox=top["bbox"]))
+                    result.notes.append("Detected by the tile scan (not by the whole-frame classification).")
+                for det in result.detections:
+                    det.bbox = det.bbox or top["bbox"]
+                    det.confidence = max(det.confidence, top["max_prob"])
     except Exception as exc:  # noqa: BLE001 - recorded, surfaced
         return InferenceOutcome("inference_failed", {"status": "inference_failed", "error": str(exc)}, None)
     return InferenceOutcome("completed", result.to_dict(), result)
+
+
+def locate_detection(db: Session, img: ValidatedImage, localization: dict | None, component_id: str | None, device_id: str | None) -> dict:
+    """Image region + (when a placed camera is known) 3D surface point and geographic coordinates of a detection."""
+    from app.models import Asset
+    from app.services.spatial import SpatialMappingError, model_to_geo, project_pixel_to_component
+    from app.services.storage import get_storage
+
+    regions = (localization or {}).get("regions") or []
+    out: dict = {"location_kind": "component", "localization_method": "manual_component", "image_region": None, "localization_notes": None}
+    if not regions:
+        out["localization_notes"] = "Crack detected in the image as a whole; no tile exceeded the threshold, so its position in the image is unknown."
+        return out
+    top = regions[0]
+    out["image_region"] = {"bbox": top["bbox"], "point_px": top["centroid_px"], "regions": regions, "method": localization["method"],
+                           "tile_px": localization["tile_px"], "image_size": localization["image_size"]}
+    cam = db.get(Device, device_id) if device_id else None
+    comp = db.get(Component, component_id) if component_id else None
+    if not (cam and cam.device_type == "camera" and comp):
+        out["localization_notes"] = "Position known in the image only (no placed camera, so it cannot be projected onto the 3D model)."
+        return out
+    asset = db.get(Asset, comp.asset_id)
+    try:
+        p = project_pixel_to_component(cam, comp, top["centroid_px"][0], top["centroid_px"][1], (img.width, img.height), asset, get_storage())
+    except SpatialMappingError as exc:
+        out["localization_notes"] = f"Could not project onto the 3D model: {exc}"
+        return out
+    out.update({"location_kind": "surface", "localization_method": p["method"], "location_confidence": p["location_confidence"],
+                "pos_x": p["position"][0], "pos_y": p["position"][1], "pos_z": p["position"][2],
+                "normal_x": p["normal"][0], "normal_y": p["normal"][1], "normal_z": p["normal"][2], "localization_notes": p["notes"]})
+    geo = model_to_geo(asset, p["position"][0], p["position"][2]) if asset else None
+    if geo:
+        out["latitude"], out["longitude"] = round(geo["latitude"], 7), round(geo["longitude"], 7)
+        out["localization_notes"] += (" GPS from a calibrated model-to-world transform." if geo["calibrated"]
+                                      else " GPS from an UNCALIBRATED model-to-world transform (approximate).")
+    return out
 
 
 def run_image_inspection(db: Session, img: ValidatedImage, *, asset_id: str, component_id: str | None, device_id: str | None = None,
@@ -86,12 +138,12 @@ def run_image_inspection(db: Session, img: ValidatedImage, *, asset_id: str, com
               component_id=component_id, device_id=device_id, ref_type="inspection", ref_id=insp.id, data_source=data_source, ts=observed_at)
     if result is not None and insp.status == "completed":
         for det in result.detections:
+            loc = locate_detection(db, img, result.raw.get("localization"), component_id, device_id)
             defects.append(create_defect(db, {
                 "asset_id": asset_id, "component_id": component_id, "inspection_id": insp.id, "image_id": image.id,
                 "category": det.category, "detection_source": "ai_model", "description": f"AI {result.task}: '{det.label}'",
                 "observed_at": observed_at, "model_id": result.model_id, "model_version": result.model_version, "model_label": det.label,
-                "model_confidence": det.confidence, "image_region": {"bbox": det.bbox} if det.bbox else None,
-                "location_kind": "component", "localization_method": "manual_component", "data_source": data_source,
+                "model_confidence": det.confidence, "data_source": data_source, **loc,
             }, actor="inference"))
     if not image.quality["ok"]:
         alert_engine.on_image_quality(db, asset_id=asset_id, component_id=component_id, device_id=device_id, inspection_id=insp.id,
@@ -123,7 +175,7 @@ def create_defect(db: Session, data: dict, actor: str | None = None) -> Defect:
     kind = data.get("location_kind") or ("surface" if data.get("pos_x") is not None else "component")
     if kind == "surface" and any(data.get(k) is None for k in ("pos_x", "pos_y", "pos_z")):
         raise DomainError("Surface-level location requires pos_x, pos_y and pos_z.")
-    if kind == "component" and not data.get("component_id"):
+    if kind == "component" and not data.get("component_id") and data.get("detection_source") != "ai_model":
         raise DomainError("Component-level location requires a component_id.")
     if kind == "surface" and method == "manual_component":
         method = "manual_surface_pick"

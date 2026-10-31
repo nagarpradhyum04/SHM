@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 Priority = Literal["unassessed", "low", "medium", "high", "critical"]
 Category = Literal["suspected_crack", "suspected_corrosion", "exposed_reinforcement", "vibration_anomaly", "surface_deformation", "other", "unclassified"]
 ReviewStatus = Literal["new", "under_review", "confirmed", "monitoring", "false_positive", "repaired", "closed"]
-LocMethod = Literal["manual_component", "manual_surface_pick", "camera_ray_aabb", "photogrammetry", "survey"]
+LocMethod = Literal["manual_component", "manual_surface_pick", "camera_ray_aabb", "camera_ray_mesh", "photogrammetry", "survey"]
 
 
 class Schema(BaseModel):
