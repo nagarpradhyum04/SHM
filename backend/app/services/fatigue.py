@@ -57,6 +57,16 @@ DEFAULT_CONFIG = {
 }
 
 
+def fmt_life(years: float | None) -> str:
+    if years is None:
+        return "unlimited"
+    if years >= 100:
+        return f"{years:,.0f} years"
+    if years >= 1:
+        return f"{years:.1f} years"
+    return f"{years * 365.25:.0f} days"
+
+
 def config_key(component_id: str) -> str:
     return f"rul_config:{component_id}"
 
@@ -256,8 +266,8 @@ def estimate(db: Session, component_id: str, now=None) -> RULResult:
             horizon=f"extrapolated from {duration / 3600:.1f} h observed", interval_low=life(d_hi), interval_high=life(d_lo),
             model_version=METHOD, validation_status=validation, limitations=limitations, data_source=source, details=details,
             message=(("DEMONSTRATION ONLY (simulated input). " if source == "simulated" else "")
-                     + f"About {est:,.0f} years of fatigue life remaining at the observed loading "
-                       f"(range {life(d_hi):,.0f}–{life(d_lo):,.0f} years for ±{u * 100:.0f} % stress-factor uncertainty)."),
+                     + f"About {fmt_life(est)} of fatigue life remaining at the observed loading "
+                       f"(range {fmt_life(life(d_hi))} – {fmt_life(life(d_lo))} for ±{u * 100:.0f} % stress-factor uncertainty)."),
         )
     res.input_coverage = {"time_series_structural_measurements": {"available": True, "source": source, "hours": duration / 3600,
                                                                    "coverage": round(coverage, 3)}}

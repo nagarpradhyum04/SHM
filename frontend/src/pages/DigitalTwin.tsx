@@ -18,13 +18,13 @@ function SummaryStrip({ assetId, shownDefects }: { assetId: string; shownDefects
   if (!s.data) return null;
   const d = s.data;
   return (
-    <div className="panel pointer-events-auto grid grid-cols-4 gap-x-5 gap-y-2 px-4 py-2.5 lg:grid-cols-8">
+    <div className="panel pointer-events-auto grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-2.5 lg:grid-cols-6">
       <Stat label="Components" value={d.components} />
-      <Stat label="Inspections" value={d.inspections} hint={`${d.inspections_last_30d} in the last 30 days`} />
       <Stat label="Findings" value={d.open_findings} hint={`${shownDefects} shown with current filters`} />
       <Stat label="High priority" value={d.high_priority_reviews} tone={d.high_priority_reviews ? "crit" : undefined} />
-      <Stat label="Real devices" value={d.devices_online_real} hint={`${d.devices_simulated} simulated · ${d.devices_never_connected} never connected`} tone={d.devices_online_real ? "ok" : "muted"} />
-      <Stat label="Stale/offline" value={`${d.devices_stale} / ${d.devices_offline}`} tone={d.devices_stale + d.devices_offline ? "warn" : undefined} />
+      <Stat label="Devices online" value={`${d.devices_online_real}${d.devices_stale + d.devices_offline ? ` · ${d.devices_stale + d.devices_offline} down` : ""}`}
+        hint={`${d.devices_online_real} real online · ${d.devices_stale} stale · ${d.devices_offline} offline · ${d.devices_simulated} simulated · ${d.devices_never_connected} never connected`}
+        tone={d.devices_stale + d.devices_offline ? "warn" : d.devices_online_real ? "ok" : "muted"} />
       <Stat label="Alerts open" value={d.alerts_open} tone={d.alerts_high_unresolved ? "crit" : d.alerts_open ? "warn" : undefined} />
       <Stat label="Last inspection" value={d.latest_inspection_at ? fmtAgo(d.latest_inspection_at) : "none"} />
     </div>

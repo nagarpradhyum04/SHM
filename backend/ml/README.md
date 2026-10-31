@@ -3,6 +3,18 @@
 No trained model is shipped with StructuraSense AI. Until one is installed, image inspections are
 stored with status `model_unavailable` and **no prediction is generated**.
 
+## Quickest route (on your laptop)
+
+```bash
+cd backend
+pip install -r requirements.txt torch onnx
+python -m ml.setup_crack_model --data-dir <folder with Positive/ and Negative/>
+```
+
+Download the dataset first (Mendeley Data 5y9wdsg2zt v2, CC BY 4.0). The helper trains, evaluates on a
+held-out test split, and installs the model into the running backend (`POST /api/v1/models/upload`).
+You can also upload `model.onnx` + `model_card.json` in **Settings → AI model**.
+
 ## Install a model
 
 A model is a folder in `SS_MODEL_DIR` (default `backend/model_store/`) containing:

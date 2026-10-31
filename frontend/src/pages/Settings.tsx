@@ -1,10 +1,10 @@
 import { CheckCircle2, RefreshCw, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api } from "@/api/client";
+import { api, API_BASE } from "@/api/client";
 import { useAlertRules, useApiMutation, useModels, useSettings, useSystemStatus } from "@/api/hooks";
 import type { AlertRule, MqttStatus } from "@/api/types";
-import { useQuery } from "@tanstack/react-query";
-import { Card, ErrorState, Field, KV, Loading, Notice, PageHeader, Segmented } from "@/components/ui";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Card, ErrorState, Field, KV, Loading, Notice, PageHeader, Segmented, Stat } from "@/components/ui";
 import { fmtBytes, fmtDateTime, fmtTime, humanize } from "@/lib/format";
 import { PRIORITIES, PRIORITY_LABEL } from "@/lib/priority";
 import { useUI } from "@/store/ui";
@@ -13,24 +13,111 @@ function Ok({ ok, label }: { ok: boolean; label: string }) {
   return <span className={`inline-flex items-center gap-1 ${ok ? "text-emerald-300" : "text-red-300"}`}>{ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}{label}</span>;
 }
 
-function JsonSetting({ k, value, title, hint }: { k: string; value: Record<string, any>; title: string; hint?: string }) {
-  const [text, setText] = useState(JSON.stringify(value, null, 2));
+/** Small form of labelled number inputs for one settings object (replaces raw JSON editing). */
+function NumberSettings({ k, value, title, hint, fields }: {
+  k: string; value: Record<string, any>; title: string; hint?: string; fields: { key: string; label: string; help?: string }[];
+}) {
+  const [v, setV] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
-  useEffect(() => setText(JSON.stringify(value, null, 2)), [value]);
-  const save = useApiMutation((v: unknown) => api(`/settings/${k}`, { method: "PUT", json: { value: v, actor: localStorage.getItem("ss.actor") || null } }), ["settings", "system-status"]);
+  useEffect(() => setV(Object.fromEntries(fields.map((f) => [f.key, value[f.key] === null || value[f.key] === undefined ? "" : String(value[f.key])]))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [value]);
+  const save = useApiMutation(() => api(`/settings/${k}`, { method: "PUT", json: {
+    value: Object.fromEntries(fields.map((f) => [f.key, v[f.key] === "" ? null : Number(v[f.key])])), actor: localStorage.getItem("ss.actor") || null } }),
+  ["settings", "system-status"]);
   return (
-    <Card title={title} bodyClass="space-y-2 p-3">
+    <Card title={title} bodyClass="space-y-3 p-3">
       {hint && <p className="text-[11px] text-slate-400">{hint}</p>}
-      <textarea className="input mono h-48" value={text} onChange={(e) => setText(e.target.value)} aria-label={`${title} JSON`} spellCheck={false} />
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        {fields.map((f) => (
+          <Field key={f.key} label={f.label} hint={f.help}>
+            <input className="input" inputMode="decimal" value={v[f.key] ?? ""} onChange={(e) => setV({ ...v, [f.key]: e.target.value })} aria-label={f.label} />
+          </Field>
+        ))}
+      </div>
       <div className="flex items-center gap-2">
-        <button className="btn-primary" onClick={() => {
-          let v: unknown;
-          try { v = JSON.parse(text); } catch { return setMsg("Invalid JSON"); }
-          save.mutate(v, { onSuccess: () => setMsg("Saved"), onError: (e) => setMsg((e as Error).message) });
-        }}>Save</button>
+        <button className="btn-primary" onClick={() => save.mutate(undefined, { onSuccess: () => setMsg("Saved"), onError: (e) => setMsg((e as Error).message) })}>Save</button>
         {msg && <span className={`text-[11px] ${msg === "Saved" ? "text-emerald-300" : "text-red-300"}`}>{msg}</span>}
       </div>
     </Card>
+  );
+}
+
+function pct(v: unknown) {
+  return typeof v === "number" ? `${(v * 100).toFixed(1)} %` : "—";
+}
+
+/** AI crack-detection model: status in plain words, how to get one, upload/install. */
+function ModelSection() {
+  const status = useSystemStatus();
+  const models = useModels();
+  const qc = useQueryClient();
+  const [onnx, setOnnx] = useState<File | null>(null);
+  const [card, setCard] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const reload = useApiMutation(() => api("/models/reload", { method: "POST" }), ["models", "system-status"]);
+  const available = status.data?.models.available;
+  const install = async () => {
+    if (!onnx || !card) return;
+    setBusy(true);
+    setMsg(null);
+    const fd = new FormData();
+    fd.append("onnx_file", onnx);
+    fd.append("card_file", card);
+    try {
+      const r = await fetch(`${API_BASE}/models/upload`, { method: "POST", body: fd });
+      const b = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(typeof b?.detail === "string" ? b.detail : `Install failed (${r.status})`);
+      setMsg({ ok: true, text: `Installed ${b.installed} v${b.version}. Webcam frames and uploads are now analysed automatically.` });
+      ["models", "system-status"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const installed = (models.data ?? []).filter((m) => m.status === "installed");
+  return (
+    <div className="grid gap-3 xl:grid-cols-2">
+      <Card title="AI crack-detection model" actions={<button className="btn-ghost" onClick={() => reload.mutate(undefined)}><RefreshCw className="h-3.5 w-3.5" />Rescan</button>} bodyClass="space-y-3 p-3">
+        <div className={`rounded-md border p-3 text-sm ${available ? "border-emerald-400/30 bg-emerald-400/5" : "border-amber-400/30 bg-amber-400/5"}`}>
+          {available ? (
+            <><b className="text-emerald-300">Active.</b> Webcam frames and uploaded photos are checked for cracks automatically.</>
+          ) : (
+            <><b className="text-amber-300">Not installed yet.</b> Connecting the webcam works on its own (live view, hourly photos), but cracks are only
+              detected automatically once a trained model is installed here. Nothing is guessed in the meantime.</>
+          )}
+        </div>
+        {installed.map((m) => (
+          <div key={m.id} className="rounded border border-white/10 p-2 text-xs">
+            <div className="flex justify-between"><span className="mono text-accent-soft">{m.id} v{m.version}</span><span>{m.is_active ? "active" : "installed"}</span></div>
+            <div className="mt-1 grid grid-cols-4 gap-2">
+              <Stat label="Precision" value={pct(m.metrics?.precision)} /><Stat label="Recall" value={pct(m.metrics?.recall)} />
+              <Stat label="F1" value={pct(m.metrics?.f1)} /><Stat label="Missed cracks" value={pct(m.metrics?.false_negative_rate)} />
+            </div>
+            <div className="mt-1 text-[11px] text-slate-400">Dataset: {m.dataset?.name ?? "not recorded"} {m.dataset?.license ? `(${m.dataset.license})` : ""} ·
+              test images: {m.metrics?.n ?? "—"} · threshold {m.threshold}</div>
+            {!m.metrics && <div className="text-[11px] text-amber-300">No evaluation recorded — treat its detections as unverified.</div>}
+          </div>
+        ))}
+      </Card>
+      <Card title="Install a model" bodyClass="space-y-3 p-3">
+        <ol className="list-decimal space-y-1 pl-4 text-xs text-slate-300">
+          <li>On your laptop, download the free <i>Concrete Crack Images for Classification</i> dataset (Mendeley Data, CC BY 4.0) and extract it.</li>
+          <li>In <code className="mono">backend</code>: <code className="mono">pip install torch onnx</code>, then
+            <code className="mono"> python -m ml.setup_crack_model --data-dir &lt;extracted folder&gt;</code> — it trains, tests and installs the model here automatically.</li>
+          <li>Or upload an already-trained <code className="mono">model.onnx</code> with its <code className="mono">model_card.json</code> below.</li>
+        </ol>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="model.onnx"><input type="file" accept=".onnx" className="input" onChange={(e) => setOnnx(e.target.files?.[0] ?? null)} aria-label="ONNX model file" /></Field>
+          <Field label="model_card.json"><input type="file" accept=".json,application/json" className="input" onChange={(e) => setCard(e.target.files?.[0] ?? null)} aria-label="Model card file" /></Field>
+        </div>
+        <button className="btn-primary" disabled={!onnx || !card || busy} onClick={install}>{busy ? "Checking & installing…" : "Install model"}</button>
+        {msg && <div role={msg.ok ? "status" : "alert"} className={`text-xs ${msg.ok ? "text-emerald-300" : "text-red-300"}`}>{msg.text}</div>}
+        <p className="text-[11px] text-slate-500">The model is loaded once as a check before it is activated; a broken file is rejected and nothing changes.</p>
+      </Card>
+    </div>
   );
 }
 
@@ -155,82 +242,91 @@ function RuleRow({ r }: { r: AlertRule }) {
   );
 }
 
+type Tab = "overview" | "alerts" | "model" | "data" | "advanced";
+const TABS: { k: Tab; label: string }[] = [
+  { k: "overview", label: "Overview" }, { k: "alerts", label: "Alert limits & rules" }, { k: "model", label: "AI model" },
+  { k: "data", label: "Data & devices" }, { k: "advanced", label: "Advanced" },
+];
+
 export default function SettingsPage() {
   const status = useSystemStatus();
   const settings = useSettings();
   const rules = useAlertRules();
-  const models = useModels();
   const reducedMotion = useUI((s) => s.reducedMotion);
   const setReducedMotion = useUI((s) => s.setReducedMotion);
-  const reload = useApiMutation(() => api("/models/reload", { method: "POST" }), ["models", "system-status"]);
   const setMode = useApiMutation((mode: string) => api("/settings/data_source", { method: "PUT", json: { value: { mode } } }), ["system-status", "settings"]);
   const s = status.data;
-  useEffect(() => { if (location.hash === "#rules") document.getElementById("rules")?.scrollIntoView(); }, [rules.data]);
+  const [tab, setTab] = useState<Tab>(() => (location.hash === "#rules" ? "alerts" : (location.hash.slice(1) as Tab)) || "overview");
+  const go = (t: Tab) => { setTab(t); history.replaceState(null, "", `#${t}`); };
+  const sv = settings.data;
   return (
     <div className="space-y-3 pb-6">
-      <PageHeader title="Settings & System Health" subtitle="Data sources, rules, model configuration, device ingestion and backend health." />
-      <div className="grid gap-3 px-5 xl:grid-cols-2">
-        <Card title="System health" bodyClass="p-3">
-          {status.isLoading ? <Loading /> : status.isError ? <ErrorState error={status.error} onRetry={() => status.refetch()} /> : s && (
-            <div>
-              <KV k="Backend" v={<Ok ok label={`${s.app} · API ${s.api_version} · ${s.environment}`} />} />
-              <KV k="Database" v={<Ok ok={s.database.ok} label={s.database.dialect} />} />
-              <KV k="Storage" v={<Ok ok={s.storage.ok && !!s.storage.writable} label={s.storage.ok ? `${s.storage.files} files · ${fmtBytes(s.storage.bytes)} · ${fmtBytes(s.storage.disk_free_bytes)} free` : s.storage.error ?? "error"} />} />
-              <KV k="Inference models" v={<Ok ok={s.models.available} label={s.models.available ? s.models.loaded.map((m) => `${m.id} v${m.version}`).join(", ") : "No model installed (inference unavailable)"} />} />
-              {Object.keys(s.models.errors).length > 0 && <KV k="Model errors" v={JSON.stringify(s.models.errors)} mono />}
- <KV k="MQTT bridge" v={<Ok ok={s.mqtt.state === "connected"} label={s.mqtt.enabled ? `${s.mqtt.state} (${s.mqtt.broker})` : "disabled"} />} />
-              <KV k="Background jobs" v={<Ok ok={s.background_enabled} label={s.background_enabled ? "running" : "disabled"} />} />
-              <KV k="Real sensor data" v={s.real_data_configured ? `received (last ${fmtDateTime(s.last_real_reading_received_at)})` : "none received yet"} />
-              <KV k="Readings by source" v={JSON.stringify(s.readings_by_source)} mono />
-              <KV k="Device ingestion auth" v={s.device_auth_required ? `required (per-device tokens${s.shared_device_key_configured ? " + shared key" : ""})` : "DISABLED"} />
-              <KV k="Upload limit" v={`${s.max_upload_mb} MB`} />
-              <KV k="User authentication" v={<span className="text-amber-300">{humanize(s.security.user_authentication)}</span>} />
-              <Notice tone="warn" className="mt-2">{s.security.note}</Notice>
-            </div>
-          )}
-        </Card>
-        <Card title="Data source & display" bodyClass="space-y-3 p-3">
-          <div className="flex items-center justify-between"><span className="text-xs">Dashboard data source</span>
-            <Segmented value={s?.data_source.mode ?? "simulated"} onChange={(m) => setMode.mutate(m)} options={[{ value: "real", label: "Real" }, { value: "uploaded", label: "Uploaded" }, { value: "simulated", label: "Simulated" }, { value: "all", label: "All (labelled)" }]} />
+      <PageHeader title="Settings & System Health" subtitle="Connection status, alert limits, the AI model and data options." />
+      <div className="mx-5 flex flex-wrap gap-1 border-b border-white/10" role="tablist">
+        {TABS.map((t) => (
+          <button key={t.k} role="tab" aria-selected={tab === t.k} onClick={() => go(t.k)}
+            className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium ${tab === t.k ? "border-accent text-accent-soft" : "border-transparent text-slate-400 hover:text-white"}`}>{t.label}</button>
+        ))}
+      </div>
+      <div className="px-5">
+        {tab === "overview" && (
+          <div className="grid gap-3 xl:grid-cols-2">
+            <Card title="System status" bodyClass="p-3">
+              {status.isLoading ? <Loading /> : status.isError ? <ErrorState error={status.error} onRetry={() => status.refetch()} /> : s && (
+                <div>
+                  <KV k="Backend" v={<Ok ok label="running" />} />
+                  <KV k="Database" v={<Ok ok={s.database.ok} label={s.database.ok ? "OK" : "error"} />} />
+                  <KV k="Storage" v={<Ok ok={s.storage.ok && !!s.storage.writable} label={s.storage.ok ? `${fmtBytes(s.storage.disk_free_bytes)} free` : s.storage.error ?? "error"} />} />
+                  <KV k="IoT (MQTT)" v={<Ok ok={s.mqtt.state === "connected"} label={s.mqtt.enabled ? s.mqtt.state : "disabled"} />} />
+                  <KV k="AI model" v={<Ok ok={s.models.available} label={s.models.available ? "installed" : "not installed"} />} />
+                  <KV k="Real sensor data" v={s.real_data_configured ? `last received ${fmtDateTime(s.last_real_reading_received_at)}` : "none received yet"} />
+                  <KV k="User login" v={<span className="text-amber-300">not implemented (single-user local build)</span>} />
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <a className="btn-ghost" href="/api/v1" target="_blank" rel="noreferrer">API index</a>
+                    <a className="btn-ghost" href="/docs" target="_blank" rel="noreferrer">API documentation</a>
+                  </div>
+                </div>
+              )}
+            </Card>
+            <MqttCard />
           </div>
-          <p className="text-[11px] text-slate-400">Real, uploaded and simulated data are stored separately and always labelled. “All” shows every source with its label; sources are never merged into one series.</p>
-          <div className="flex items-center justify-between"><span className="text-xs">Reduced motion (disables pulsing markers & camera animation)</span>
-            <input type="checkbox" checked={reducedMotion} onChange={(e) => setReducedMotion(e.target.checked)} aria-label="Reduced motion" /></div>
-          <div className="label pt-2">API configuration</div>
-          <KV k="API base" v={`${location.origin}/api/v1`} mono />
-          <KV k="Docs" v={<a className="text-accent-soft hover:underline" href="/docs" target="_blank" rel="noreferrer">OpenAPI / Swagger UI</a>} />
-          <KV k="Ingestion" v="POST /api/v1/ingest/readings · header X-Device-Token" mono />
-        </Card>
-        <MqttCard />
-        {settings.data && <LimitsCard vibration={settings.data.vibration} environment={settings.data.environment} />}
-        {settings.data?.priority_rules && <div className="xl:col-span-2"><PriorityRules value={settings.data.priority_rules} /></div>}
-        <div id="rules" className="xl:col-span-2">
-          <Card title="Alert rules" bodyClass="overflow-auto">
-            {rules.isLoading ? <Loading /> : (
-              <table className="table-base">
-                <thead><tr><th>Rule</th><th>Enabled</th><th>Default priority</th><th>Cooldown (s)</th><th>Version</th></tr></thead>
-                <tbody>{(rules.data ?? []).map((r) => <RuleRow key={r.id} r={r} />)}</tbody>
-              </table>
-            )}
-          </Card>
-        </div>
-        <Card title="Model registry" actions={<button className="btn-ghost" onClick={() => reload.mutate(undefined)}><RefreshCw className="h-3.5 w-3.5" />Rescan models</button>} bodyClass="space-y-2 p-3">
-          {models.data?.length ? models.data.map((m) => (
-            <div key={m.id} className="rounded border border-white/10 p-2">
-              <div className="flex items-center justify-between"><span className="mono text-accent-soft">{m.id} v{m.version}</span><span className="text-[11px]">{m.status}{m.is_active ? " · active" : ""}</span></div>
-              <KV k="Task" v={`${m.task} · ${(m.categories ?? []).join(", ")}`} />
-              <KV k="Threshold" v={m.threshold} />
-              <KV k="Dataset" v={m.dataset ? JSON.stringify(m.dataset) : "not recorded"} mono />
-              <KV k="Recorded metrics" v={m.metrics ? JSON.stringify(m.metrics) : "none recorded — treat outputs as unvalidated"} mono />
-            </div>
-          )) : (
-            <Notice tone="warn">No trained model is installed. Inference is unavailable and no predictions are generated. Train and export a model with <code className="mono">backend/ml/train_crack_classifier.py</code>, evaluate it with <code className="mono">backend/ml/evaluate.py</code>, place it in <code className="mono">backend/model_store/&lt;name&gt;/</code> and rescan.</Notice>
-          )}
-          <p className="text-[11px] text-slate-500">AI-supported categories: {s?.models.ai_supported_categories.length ? s.models.ai_supported_categories.join(", ") : "none"}. Other categories can be recorded manually.</p>
-        </Card>
-        {settings.data && <JsonSetting k="device_status" title="Device status thresholds" value={settings.data.device_status} hint="Seconds since last real reading before a device is considered stale / offline." />}
-        {settings.data && <JsonSetting k="vibration" title="Vibration analysis" value={settings.data.vibration} hint="Window length and anomaly-rule parameters (k·σ above baseline). Recorded with every evaluated window." />}
-        {settings.data && <JsonSetting k="retention" title="Data retention" value={settings.data.retention} hint="Processed raw readings older than this are pruned (features are kept). Simulated raw data is pruned after 6 hours." />}
+        )}
+        {tab === "alerts" && (
+          <div className="space-y-3">
+            {sv && <LimitsCard vibration={sv.vibration} environment={sv.environment} />}
+            <Card title="Alert rules" bodyClass="overflow-auto">
+              {rules.isLoading ? <Loading /> : (
+                <table className="table-base">
+                  <thead><tr><th>Rule</th><th>On</th><th>Priority</th><th>Repeat wait (s)</th><th>Version</th></tr></thead>
+                  <tbody>{(rules.data ?? []).map((r) => <RuleRow key={r.id} r={r} />)}</tbody>
+                </table>
+              )}
+            </Card>
+          </div>
+        )}
+        {tab === "model" && <ModelSection />}
+        {tab === "data" && (
+          <div className="grid gap-3 xl:grid-cols-2">
+            <Card title="What the dashboards show" bodyClass="space-y-3 p-3">
+              <Segmented value={s?.data_source.mode ?? "all"} onChange={(m) => setMode.mutate(m)} options={[{ value: "all", label: "All (labelled)" }, { value: "real", label: "Real only" }, { value: "uploaded", label: "Uploaded" }, { value: "simulated", label: "Simulated" }]} />
+              <p className="text-[11px] text-slate-400">Real, uploaded and simulated data are stored separately and always labelled; they are never mixed in one chart line.</p>
+              <label className="flex items-center justify-between text-xs">Reduced motion (no pulsing markers or camera animation)
+                <input type="checkbox" checked={reducedMotion} onChange={(e) => setReducedMotion(e.target.checked)} aria-label="Reduced motion" /></label>
+            </Card>
+            {sv && <NumberSettings k="device_status" title="When is a device stale / offline?" value={sv.device_status} hint="Time since the last real reading."
+              fields={[{ key: "stale_after_s", label: "Stale after (s)" }, { key: "offline_after_s", label: "Offline after (s)" }]} />}
+            {sv && <NumberSettings k="retention" title="Data retention" value={sv.retention} hint="Raw readings older than this are deleted after processing; window features are kept."
+              fields={[{ key: "raw_readings_days", label: "Raw readings (days)" }, { key: "features_days", label: "Features (days)" }]} />}
+          </div>
+        )}
+        {tab === "advanced" && (
+          <div className="space-y-3">
+            {sv && <NumberSettings k="vibration" title="Vibration analysis parameters" value={sv.vibration} hint="Recorded with every evaluated window. Change only if you know why."
+              fields={[{ key: "window_s", label: "Window length (s)" }, { key: "anomaly_k_sigma", label: "Anomaly k·σ (RMS)" }, { key: "peak_k_sigma", label: "Anomaly k·σ (peak)" },
+                { key: "min_baseline_windows", label: "Min windows for a baseline" }, { key: "min_window_completeness", label: "Min window completeness (0–1)" }]} />}
+            {sv?.priority_rules && <PriorityRules value={sv.priority_rules} />}
+          </div>
+        )}
       </div>
     </div>
   );

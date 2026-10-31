@@ -21,7 +21,7 @@
 | Photogrammetry / survey localisation | Interface values only |
 | Calibrated model-to-world transform | Data model only; demo asset has none |
 | Map view | Requires `VITE_MAP_TILE_URL` and assets with coordinates |
-| Remaining useful life | Interface only; always returns "RUL prediction unavailable: insufficient validated data." |
+| Remaining useful life | Fatigue-life estimate under repeated loading (rainflow + EN 1993-1-9 S-N + Miner's rule) from measured acceleration. Requires an engineer-supplied stress-per-g factor and detail category; reported with an uncertainty range and marked as an unvalidated engineering estimate (demonstration-only on simulated data). Other deterioration mechanisms (corrosion, existing cracks) are not modelled. |
 | User authentication / authorization | **Not implemented** (single-user local build) |
 
 ## Review priority is not structural severity

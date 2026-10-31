@@ -9,18 +9,19 @@ import { humanize } from "@/lib/format";
 import { DEFAULT_FILTERS, type LayerKey, useUI } from "@/store/ui";
 
 const LAYERS: { key: LayerKey; label: string; hint?: string }[] = [
-  { key: "model", label: "Infrastructure model" },
-  { key: "devices", label: "Device markers" },
-  { key: "defects", label: "Defect markers" },
+  { key: "model", label: "Structure" },
+  { key: "devices", label: "Sensors & cameras" },
+  { key: "defects", label: "Defects" },
   { key: "boundaries", label: "Component boundaries" },
   { key: "heatmap", label: "Defect heatmap", hint: "Tints components by open findings, weighted by review priority" },
   { key: "wireframe", label: "Wireframe" },
-  { key: "labels", label: "Labels & identifiers" },
+  { key: "labels", label: "Labels" },
   { key: "history", label: "Historical findings", hint: "Include repaired/closed/false-positive findings" },
   { key: "coverage", label: "Camera coverage", hint: "Nominal field of view from configured camera pose (uncalibrated)" },
 ];
 
 type Tab = "layers" | "components" | "devices" | "filters";
+const CORE_LAYERS: LayerKey[] = ["model", "devices", "defects", "labels"];
 
 function Toggle({ on, onClick, label, hint }: { on: boolean; onClick: () => void; label: string; hint?: string }) {
   return (
@@ -111,8 +112,12 @@ export function Sidebar({ components, devices, defects }: { components: Componen
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {tab === "layers" && (
           <div className="space-y-0.5">
-            <div className="panel-title px-2 pb-1 pt-1">Model layers</div>
-            {LAYERS.map((l) => <Toggle key={l.key} on={layers[l.key]} onClick={() => toggleLayer(l.key)} label={l.label} hint={l.hint} />)}
+            <div className="panel-title px-2 pb-1 pt-1">Show</div>
+            {LAYERS.filter((l) => CORE_LAYERS.includes(l.key)).map((l) => <Toggle key={l.key} on={layers[l.key]} onClick={() => toggleLayer(l.key)} label={l.label} hint={l.hint} />)}
+            <details className="pt-1">
+              <summary className="cursor-pointer px-2 py-1 text-[11px] text-slate-400 hover:text-white">More view options</summary>
+              {LAYERS.filter((l) => !CORE_LAYERS.includes(l.key)).map((l) => <Toggle key={l.key} on={layers[l.key]} onClick={() => toggleLayer(l.key)} label={l.label} hint={l.hint} />)}
+            </details>
             <div className="panel-title px-2 pb-1 pt-4">Legend — review priority</div>
             {PRIORITIES.map((p) => (
               <div key={p} className="flex items-center gap-2 px-2 py-0.5 text-[11px] text-slate-300">

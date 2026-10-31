@@ -146,7 +146,7 @@ export interface Report { id: string; asset_id: string; period_start: string; pe
 
 export interface ModelRec { id: string; name: string; task: string; categories: string[] | null; version: string; framework: string; status: string; threshold: number | null; dataset: Record<string, any> | null; preprocessing: Record<string, any> | null; metrics: Record<string, any> | null; is_active: boolean; registered_at: string }
 
-export interface RULResult { id: string; asset_id: string; component_id: string | null; status: string; estimate: number | null; units: string | null; horizon: string | null; interval_low: number | null; interval_high: number | null; model_version: string | null; input_coverage: Record<string, any> | null; validation_status: string; limitations: string[] | null; message: string | null; created_at: string }
+export interface RULResult { id: string; asset_id: string; component_id: string | null; status: string; estimate: number | null; units: string | null; horizon: string | null; interval_low: number | null; interval_high: number | null; model_version: string | null; input_coverage: Record<string, any> | null; validation_status: string; limitations: string[] | null; message: string | null; created_at: string; details?: Record<string, any> | null; data_source?: string | null }
 
 export interface SystemStatus {
   app: string; environment: string; api_version: string; database: { ok: boolean; dialect: string };

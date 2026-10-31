@@ -34,6 +34,7 @@ await step("digital twin loads with 3D canvas and record-derived KPIs", async ()
 
 await step("layer toggle switches state", async () => {
   await page.getByRole("tab", { name: "Layers" }).click();
+  await page.getByText("More view options").click();
   const sw = page.getByRole("switch", { name: "Wireframe" });
   await sw.click();
   expect((await sw.getAttribute("aria-checked")) === "true", "wireframe not enabled");
@@ -96,8 +97,20 @@ await step("PDF report is generated and downloadable", async () => {
   expect(String.fromCharCode(...head) === "%PDF-", "not a PDF");
 });
 
+await step("device placement tab shows the 3D view and editor", async () => {
+  await page.goto(`${BASE}/devices`);
+  await page.getByRole("tab", { name: "Placement on the model" }).click();
+  await page.waitForSelector("canvas", { timeout: 20000 });
+  await page.getByRole("button", { name: "Pick position on model" }).waitFor({ timeout: 10000 });
+});
+
+await step("API base link returns the API index (not 404)", async () => {
+  const r = await fetch(`${BASE}/api/v1`);
+  expect(r.ok && (await r.json()).documentation === "/docs", "API index missing");
+});
+
 await step("all sections render without page errors", async () => {
-  for (const p of ["assets", "devices", "sensors", "history", "settings"]) {
+  for (const p of ["assets", "devices", "sensors", "history", "rul", "settings#model", "settings#alerts", "settings#data", "settings#advanced"]) {
     await page.goto(`${BASE}/${p}`);
     await page.waitForTimeout(1200);
   }

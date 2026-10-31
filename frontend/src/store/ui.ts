@@ -81,7 +81,7 @@ export const useUI = create<UIState>((set) => ({
   reducedMotion: prefs.reducedMotion ?? !!prefersReduced,
   leftOpen: prefs.leftOpen ?? wide,
   rightOpen: prefs.rightOpen ?? wide,
-  timelineOpen: prefs.timelineOpen ?? true,
+  timelineOpen: prefs.timelineOpen ?? false,
   cameraCommand: null,
   pickMode: false,
   pickPurpose: "finding",

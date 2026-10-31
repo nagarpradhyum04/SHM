@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, qs } from "@/api/client";
-import { useApiMutation, useComponents, useDevices, useEvents, useRulResults } from "@/api/hooks";
-import type { Baseline, Defect, DefectEvent, ImageRec, Inspection, RULResult } from "@/api/types";
+import { useComponents, useDevices, useEvents } from "@/api/hooks";
+import type { Baseline, Defect, DefectEvent, ImageRec, Inspection } from "@/api/types";
 import { EvidenceImage } from "@/components/DefectEvidence";
 import { Card, Chip, Empty, ErrorState, Loading, Notice, PageHeader, PriorityBadge, SourceBadge } from "@/components/ui";
 import { useShowIn3D } from "@/hooks/useShowIn3D";
@@ -88,33 +88,6 @@ function VibrationHistory({ assetId }: { assetId: string }) {
   );
 }
 
-function RulPanel({ assetId, componentId }: { assetId: string; componentId?: string }) {
-  const results = useRulResults(assetId);
-  const run = useApiMutation(() => api<RULResult>("/rul/estimate", { method: "POST", json: { asset_id: assetId, component_id: componentId || null } }), ["rul"]);
-  const latest = run.data ?? results.data?.[0];
-  return (
-    <Card title="Remaining useful life (RUL)" bodyClass="space-y-2 p-3">
-      <p className="text-[11px] text-slate-400">Independent module interface. It reports which inputs exist and only returns an estimate when a validated model and adequate data are available.</p>
-      <button className="btn-ghost" onClick={() => run.mutate(undefined)}>Run RUL assessment{componentId ? ` for ${componentId}` : " (asset)"}</button>
-      {latest && (
-        <div className="space-y-2">
-          <Notice tone={latest.status === "unavailable" ? "warn" : "info"}><b>{latest.message ?? `Estimate: ${latest.estimate} ${latest.units}`}</b> ({fmtDateTime(latest.created_at)}, {latest.component_id ?? "asset"})</Notice>
-          <table className="table-base">
-            <thead><tr><th>Required input</th><th>Available</th><th>Detail</th></tr></thead>
-            <tbody>
-              {Object.entries(latest.input_coverage ?? {}).map(([k, v]: [string, any]) => (
-                <tr key={k}><td>{humanize(k)}</td><td className={v.available ? "text-emerald-300" : "text-slate-500"}>{v.available ? "yes" : "no"}</td>
-                  <td className="text-[11px] text-slate-400">{v.note ?? ""} {v.by_source ? `features: ${JSON.stringify(Object.fromEntries(Object.entries(v.by_source).map(([s, x]: any) => [s, x.windows])))}` : ""}{v.defects !== undefined ? ` ${v.defects} findings, ${v.inspections} inspections` : ""}</td></tr>
-              ))}
-            </tbody>
-          </table>
-          <ul className="list-disc pl-4 text-[11px] text-slate-400">{(latest.limitations ?? []).map((l) => <li key={l}>{l}</li>)}</ul>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 export default function HistoryPage() {
   const assetId = useUI((s) => s.assetId) ?? undefined;
   const [params, setParams] = useSearchParams();
@@ -184,7 +157,10 @@ export default function HistoryPage() {
           )}
         </Card>
         {assetId && <VibrationHistory assetId={assetId} />}
-        {assetId && <RulPanel assetId={assetId} componentId={component || undefined} />}
+        <Card title="Remaining life" bodyClass="space-y-2 p-3">
+          <p className="text-xs text-slate-300">Fatigue-life estimates from measured loading now have their own section.</p>
+          <Link className="btn-primary" to="/rul">Open Remaining Life</Link>
+        </Card>
         <Card title="Event log" className="xl:col-span-2" actions={
           <select className="input w-48" value={etype} onChange={(e) => setEtype(e.target.value)} aria-label="Event type">
             <option value="">All event types</option>{["inspection", "defect_recorded", "defect_status", "sensor_anomaly", "alert_raised", "alert_acknowledged", "alert_resolved", "baseline_created", "device_registered", "config_changed", "report_generated", "data_upload"].map((t) => <option key={t} value={t}>{humanize(t)}</option>)}

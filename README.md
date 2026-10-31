@@ -71,7 +71,8 @@ Step-by-step guide: [docs/hardware-integration.md](docs/hardware-integration.md)
 | Device Registry | Cameras, sensor nodes (acceleration + temperature/humidity) and sensors with 3D pose, data source, connection status, last MQTT status report; one-time ingestion tokens and rotation; placement editing in the twin |
 | Sensor Analytics | Live readings, 60 s vibration features (mean/std/RMS/peak, completeness, duplicates, gaps), baselines, anomaly evaluation with recorded thresholds, simulation controls, CSV upload |
 | Alerts Center | Rule-based alerts with deduplication, cooldowns, evidence links, acknowledge/assign/resolve/reopen and audit trail |
-| Historical Analysis | Component inspection history, side-by-side (explicitly unregistered) comparison, status changes, repeated observations, vibration across windows and baseline changes, event log, RUL interface |
+| Historical Analysis | Component inspection history, side-by-side (explicitly unregistered) comparison, status changes, repeated observations, vibration across windows and baseline changes, event log |
+| Remaining Life | Fatigue life of a part under the repeated loading its sensor measures: rainflow cycle counting, engineer-entered stress factor and S-N detail category, Miner's rule, uncertainty range, cycle histogram, assumptions |
 | Reports | PDF and print view: provenance warnings, summary, findings with evidence, vibration charts, alerts, devices, model/config versions, disclaimer |
 | Settings & System Health | Data-source mode (real / uploaded / simulated / all, never merged), priority rules, alert rules, thresholds, model registry, reduced motion, backend/storage/model health, security status |
 
@@ -131,9 +132,9 @@ node frontend/e2e/smoke.mjs             # browser smoke test against running ser
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` (52 tests, adding: MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 52 passed |
+| Backend `pytest` (61 tests, adding: fatigue RUL (ASTM E1049 rainflow reference example, EN 1993-1-9 S-N, end-to-end result within 2 % of a hand calculation), device deletion, API index, model install, MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 61 passed |
 | Frontend `tsc` typecheck + `vitest` (20 tests, adding placement/aim maths, GLB node mapping, scene framing) | clean · 20 passed |
-| Browser e2e `frontend/e2e/smoke.mjs` | 9/9 passed |
+| Browser e2e `frontend/e2e/smoke.mjs` (adds device placement tab, API index) | 11/11 passed |
 | Firmware `esp32_mqtt_node.ino` | g++ syntax/type check against API stubs; its payload-building code run on the host and accepted by the backend MQTT handler. **Not compiled for or flashed to an ESP32** (toolchain download blocked in this environment). |
 | Manual run: emulated node over MQTT (scratch harness, not committed) | readings/env/status ingested; 60 s windows; limit alert fired only for the window above the configured limit; node went Stale when publishing stopped |
 

@@ -13,6 +13,7 @@ const Alerts = lazy(() => import("@/pages/Alerts"));
 const HistoryPage = lazy(() => import("@/pages/History"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
+const RemainingLife = lazy(() => import("@/pages/RemainingLife"));
 
 export default function App() {
   return (
@@ -22,7 +23,7 @@ export default function App() {
         <Route path="/twin" element={<DigitalTwin />} />
         {[
           ["/assets", Assets], ["/inspections", Inspections], ["/defects", Defects], ["/devices", Devices], ["/sensors", Sensors],
-          ["/alerts", Alerts], ["/history", HistoryPage], ["/reports", Reports], ["/settings", SettingsPage],
+          ["/alerts", Alerts], ["/rul", RemainingLife], ["/history", HistoryPage], ["/reports", Reports], ["/settings", SettingsPage],
         ].map(([path, C]) => {
           const Page = C as React.ComponentType;
           return <Route key={path as string} path={path as string} element={<Suspense fallback={<Loading />}><div className="h-full overflow-y-auto"><Page /></div></Suspense>} />;
