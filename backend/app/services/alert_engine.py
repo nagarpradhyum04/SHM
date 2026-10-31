@@ -94,7 +94,13 @@ def raise_alert(
         existing.last_seen_at = now
         if _rank(prio) > _rank(existing.priority):
             db.add(AlertEvent(alert_id=existing.id, event_type="priority_raised", note=f"{existing.priority} → {prio}", created_at=now))
+            before = existing.priority
             existing.priority = prio
+            from app.services import notify
+
+            min_p = (notify.get_setting(db, "notifications") or {}).get("min_priority", "medium")
+            if _rank(before) < _rank(min_p) <= _rank(prio):  # escalated across the messaging threshold
+                notify.enqueue_for_alert(db, existing, reason="escalated")
         _add_evidence(db, existing, evidence, now)
         db.add(AlertEvent(alert_id=existing.id, event_type="repeated_occurrence", note=message, created_at=now))
         broadcaster.publish("alerts", {"asset_id": asset_id})
@@ -136,6 +142,9 @@ def raise_alert(
     db.flush()
     _add_evidence(db, alert, evidence, now)
     db.add(AlertEvent(alert_id=alert.id, event_type="created", to_status="open", actor="alert-engine", note=f"Rule {rule.name} v{rule.version}", created_at=now))
+    from app.services import notify
+
+    notify.enqueue_for_alert(db, alert)
     log_event(
         db, event_type="alert_raised", title=title, asset_id=asset_id, component_id=component_id, device_id=device_id,
         ref_type="alert", ref_id=alert.id, priority=prio, data_source=data_source, ts=now,

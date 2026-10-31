@@ -52,6 +52,26 @@ class Settings(BaseSettings):
     max_model_mb: float = 150.0
     max_clip_mb: float = 50.0
 
+    # Alert messages. Secrets may also be entered in Settings → Notifications (stored server-side, never returned).
+    public_dashboard_url: str = "http://127.0.0.1:5173"
+    telegram_bot_token: str | None = None
+    telegram_chat_ids: str | None = None  # comma-separated
+    telegram_api_base: str = "https://api.telegram.org"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_security: str = "starttls"  # starttls | ssl | none
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_to: str | None = None  # comma-separated
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from: str | None = None
+    twilio_to: str | None = None  # comma-separated
+    twilio_api_base: str = "https://api.twilio.com"
+    webhook_url: str | None = None
+    webhook_format: str = "json"  # json | discord | slack | ntfy
+
     seed_demo_data: bool = True
     auto_migrate: bool = True
 

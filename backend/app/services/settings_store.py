@@ -69,6 +69,14 @@ DEFAULTS: dict[str, Any] = {
     # Webcam agent: once an AI finding from a camera is open, identical detections within this period are
     # not stored again (prevents one persistent crack from creating a new record every few seconds).
     "camera": {"repeat_suppression_s": 3600, "periodic_keep_s": 3600},
+    # Alert messages (channel credentials are configured separately and never returned by the API).
+    "notifications": {
+        "enabled": True,
+        "min_priority": "medium",
+        "channels": {"telegram": True, "email": True, "sms": True, "webhook": True},
+        "include_simulated": False,
+        "rule_types": [],
+    },
     "simulation": {"live_enabled": False, "sample_rate_hz": 10},
     "display": {"reduced_motion": False, "units": "metric"},
     "retention": {"raw_readings_days": 30, "features_days": 3650, "images_days": None},

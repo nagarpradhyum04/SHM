@@ -450,6 +450,25 @@ class AlertEvent(Base):
 # --------------------------------------------------------------------------- history / reports / config
 
 
+class NotificationLog(Base):
+    """Outbox + delivery log for alert messages (Telegram, email, SMS, webhook)."""
+
+    __tablename__ = "notification_log"
+    __table_args__ = (Index("ix_notification_status_next", "status", "next_attempt_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    channel: Mapped[str] = mapped_column(String(20))  # telegram | email | sms | webhook
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | sent | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    error: Mapped[str | None] = mapped_column(Text)
+    subject: Mapped[str | None] = mapped_column(String(300))
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
 class EventLog(Base):
     """Asset-level timeline of everything that happened (inspections, findings, alerts, config)."""
 

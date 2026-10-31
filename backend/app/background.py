@@ -34,6 +34,10 @@ def tick(state: dict) -> None:
                 if feats:
                     broadcaster.publish("features", {"device_id": dev_id, "source": source})
         alert_engine.evaluate_device_status(db, now)
+        db.commit()  # alerts are durable before any message is attempted
+        from app.services import notify
+
+        notify.dispatch_pending(db, now)
         if now - state.get("last_retention", now - timedelta(hours=1)) >= timedelta(minutes=10):
             state["last_retention"] = now
             apply_retention(db, now)
