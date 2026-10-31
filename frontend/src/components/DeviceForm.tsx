@@ -29,6 +29,9 @@ export function DeviceForm({ assetId, initial, defaults, onDone }: { assetId: st
   const n = (v: string) => (v.trim() === "" ? null : Number(v));
   const camera = f.device_type === "camera";
   const [caps, setCaps] = useState<Capability[]>(initial?.capabilities ?? CAPS_BY_TYPE[f.device_type]);
+  const [mqttTopic, setMqttTopic] = useState(String(initial?.config?.mqtt_topic ?? ""));
+  const [tokenless, setTokenless] = useState(initial?.config?.mqtt_token_required === false);
+  const [envSensor, setEnvSensor] = useState(String(initial?.config?.env_sensor ?? "DHT11"));
   const save = useApiMutation(async () => {
     const body: Record<string, unknown> = {
       name: f.name, hardware_model: f.hardware_model || null, component_id: f.component_id || null,
@@ -37,6 +40,7 @@ export function DeviceForm({ assetId, initial, defaults, onDone }: { assetId: st
       ...(camera ? { fov_deg: n(f.fov_deg), resolution_w: n(f.resolution_w), resolution_h: n(f.resolution_h), stream_url: f.stream_url || null } : { sample_rate_hz: n(f.sample_rate_hz) }),
     };
     body.capabilities = caps;
+    if (!camera) body.config = { mqtt_topic: mqttTopic.trim() || null, mqtt_token_required: mqttTopic.trim() ? !tokenless : true, env_sensor: envSensor };
     if (initial) return api(`/devices/${initial.id}`, { method: "PATCH", json: { ...body, operational_status: f.operational_status } });
     return api<{ ingestion_token: string | null }>("/devices", { method: "POST", json: { ...body, id: f.id, device_type: f.device_type, asset_id: assetId, data_source: f.data_source } });
   }, ["devices", "summary", "component"]);
@@ -73,6 +77,23 @@ export function DeviceForm({ assetId, initial, defaults, onDone }: { assetId: st
             <label key={c} className="flex items-center gap-1"><input type="checkbox" checked={caps.includes(c)} onChange={(e) => setCaps(e.target.checked ? [...caps, c] : caps.filter((x) => x !== c))} />{c}</label>
           ))}
         </div>
+      )}
+      {!camera && (
+        <details open={!!mqttTopic}>
+          <summary className="label cursor-pointer">MQTT options (for firmware that publishes to a fixed topic)</summary>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <Field label="Bind MQTT topic" hint="e.g. bridge/sensors — messages on it are attributed to this device">
+              <input className="input" value={mqttTopic} onChange={(e) => setMqttTopic(e.target.value)} placeholder="leave empty if the firmware uses bridge/<ID>/…" />
+            </Field>
+            <Field label="Temperature sensor">
+              <select className="input" value={envSensor} onChange={(e) => setEnvSensor(e.target.value)}><option>DHT11</option><option>DHT22</option></select>
+            </Field>
+            <label className="flex items-start gap-1.5 pt-5 text-[11px] text-slate-300">
+              <input type="checkbox" disabled={!mqttTopic} checked={tokenless} onChange={(e) => setTokenless(e.target.checked)} />
+              <span>Accept messages on this topic <b>without a token</b> (only on your own network with a protected broker)</span>
+            </label>
+          </div>
+        </details>
       )}
       <Field label="Notes"><textarea className="input h-12" value={f.notes} onChange={set("notes")} /></Field>
       {err && <div role="alert" className="text-xs text-red-300">{err}</div>}

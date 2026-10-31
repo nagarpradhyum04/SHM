@@ -26,6 +26,8 @@ DEFAULT_RULES: list[dict] = [
      "description": "A vibration feature window exceeded its baseline threshold (see feature thresholds). A spike alone is not evidence of structural damage.", "params": {}},
     {"rule_type": "vibration_threshold", "name": "Vibration above configured limit", "priority": "high", "cooldown_s": 900,
      "description": "A complete vibration window exceeded an absolute rms/peak limit configured by the engineer (Settings → vibration).", "params": {}},
+    {"rule_type": "tilt_change", "name": "Tilt changed", "priority": "high", "cooldown_s": 3600,
+     "description": "The sensor's 60 s mean tilt moved away from its reference by more than the configured limit (settlement, rotation — or a loose mount).", "params": {}},
     {"rule_type": "environment_threshold", "name": "Environmental condition outside configured range", "priority": "low", "cooldown_s": 3600,
      "description": "Consecutive temperature/humidity samples outside the configured range or within the condensation margin. Exposure context only — not crack detection.", "params": {}},
     {"rule_type": "repeated_observation", "name": "Repeated observation", "priority": "medium", "cooldown_s": 86400,

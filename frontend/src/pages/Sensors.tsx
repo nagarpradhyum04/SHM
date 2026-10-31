@@ -6,10 +6,17 @@ import { useApiMutation, useBaselines, useDevices, useFeatures, useSystemStatus 
 import type { Device } from "@/api/types";
 import { FeaturesChart, ReadingsChart, SourceGate } from "@/components/SensorCharts";
 import { EnvironmentChart } from "@/components/EnvironmentChart";
+import { SummaryChart, useSummaries } from "@/components/SummaryChart";
 import { Card, ConnBadge, Empty, Field, Loading, Notice, PageHeader, Segmented, SourceBadge } from "@/components/ui";
 import { fmtDateTime, fmtNum, fmtTime } from "@/lib/format";
 import { useUI } from "@/store/ui";
 import { useQueryClient } from "@tanstack/react-query";
+
+function SummaryCard({ device, source }: { device: Device; source?: string }) {
+  const q = useSummaries(device, source, 1);
+  if (!q.data?.length) return null;
+  return <Card title={`${device.name} — live vibration & tilt (computed on the device)`} bodyClass="p-3"><SummaryChart device={device} source={source} height={220} /></Card>;
+}
 
 function FeatureTable({ device, source }: { device: Device; source?: string }) {
   const q = useFeatures(device.id, source, 240);
@@ -149,8 +156,11 @@ export default function Sensors() {
                     </div>
                   </Card>
                 )}
+                {(device.capabilities ?? ["acceleration"]).includes("acceleration") && (
+                  <SummaryCard device={device} source={src} />
+                )}
                 {(device.capabilities ?? ["acceleration"]).includes("acceleration") && <>
-                <Card title={`${device.name} — live readings`} actions={<SourceBadge source={device.data_source} />} bodyClass="p-3"><ReadingsChart device={device} source={src} height={200} /></Card>
+                <Card title={`${device.name} — raw acceleration`} actions={<SourceBadge source={device.data_source} />} bodyClass="p-3"><ReadingsChart device={device} source={src} height={200} hideWhenEmpty /></Card>
                 <Card title="Vibration features" actions={<button className="btn-ghost" onClick={() => analyze.mutate(src ?? (device.data_source === "simulated" ? "simulated" : "real"))}>Analyse pending windows</button>} bodyClass="p-3">
                   <FeaturesChart device={device} source={src} height={220} />
                   <Notice className="mt-2">An anomaly flags a window for engineering review. Acceleration spikes may be caused by traffic, wind, temperature or sensor faults and are not, by themselves, evidence of structural damage. Incomplete windows are not evaluated.</Notice>

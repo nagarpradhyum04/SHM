@@ -161,6 +161,7 @@ class DeviceIn(Schema):
 
 class DevicePatch(Schema):
     name: str | None = None
+    config: dict | None = None  # merged into the existing configuration (e.g. mqtt_topic, mqtt_token_required, env_sensor)
     capabilities: list[Literal["acceleration", "temperature", "humidity", "image"]] | None = None
     hardware_model: str | None = None
     component_id: str | None = None
@@ -283,17 +284,18 @@ class FeatureOut(ORM):
     missing_ratio: float | None
     duplicate_count: int
     gap_count: int
-    mean_x: float
-    mean_y: float
-    mean_z: float
-    std_x: float
-    std_y: float
-    std_z: float
-    rms_x: float
-    rms_y: float
-    rms_z: float
+    mean_x: float | None
+    mean_y: float | None
+    mean_z: float | None
+    std_x: float | None
+    std_y: float | None
+    std_z: float | None
+    rms_x: float | None
+    rms_y: float | None
+    rms_z: float | None
     rms_dyn: float
     peak_dyn: float
+    tilt_mean_deg: float | None = None
     feature_version: str
     baseline_id: str | None
     baseline_version: int | None

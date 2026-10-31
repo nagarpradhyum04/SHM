@@ -131,7 +131,8 @@ export interface Reading { ts: string; seq: number; ax: number; ay: number; az: 
 export interface Feature {
   id: number; device_id: string; component_id: string | null; source: string; window_start: string; window_end: string; window_s: number;
   sample_count: number; expected_count: number | null; missing_ratio: number | null; duplicate_count: number; gap_count: number;
-  mean_x: number; mean_y: number; mean_z: number; std_x: number; std_y: number; std_z: number; rms_x: number; rms_y: number; rms_z: number;
+  mean_x: number | null; mean_y: number | null; mean_z: number | null; std_x: number | null; std_y: number | null; std_z: number | null;
+  rms_x: number | null; rms_y: number | null; rms_z: number | null; tilt_mean_deg?: number | null;
   rms_dyn: number; peak_dyn: number; feature_version: string; baseline_id: string | null; baseline_version: number | null;
   baseline_ratio: number | null; anomaly: boolean; anomaly_reasons: string[] | null; thresholds: Record<string, any> | null; data_quality: string;
 }
@@ -164,3 +165,5 @@ export interface ComponentDetail {
   component: Component; children: Component[]; devices: Device[]; defects: Defect[]; inspections: Inspection[];
   geo: { latitude: number; longitude: number; method: string; calibrated?: boolean } | null; coordinate_note: string;
 }
+
+export interface SummaryPoint { ts: string; vib_rms_g: number | null; peak_g: number | null; tilt_deg: number | null; device_level: string | null; mpu_ok: boolean | null; dht_ok: boolean | null; time_source: string; source: string }

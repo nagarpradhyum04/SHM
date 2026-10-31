@@ -56,6 +56,8 @@ DEFAULTS: dict[str, Any] = {
         # Absolute limits in g on the dynamic part of the acceleration magnitude. None = not configured.
         "abs_rms_dyn_limit_g": None,
         "abs_peak_dyn_limit_g": None,
+        # Alert when the 60 s mean tilt differs from the device's reference tilt by more than this (degrees).
+        "tilt_change_limit_deg": None,
     },
     # Ambient temperature / humidity limits (None = not configured). These describe exposure conditions
     # (thermal cycling, condensation, freeze-thaw); they do not detect cracks.

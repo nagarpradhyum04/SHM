@@ -7,6 +7,7 @@ import { CameraPreview } from "@/components/CameraPreview";
 import { DefectEvidence } from "@/components/DefectEvidence";
 import { DeviceForm } from "@/components/DeviceForm";
 import { EnvironmentChart } from "@/components/EnvironmentChart";
+import { SummaryChart } from "@/components/SummaryChart";
 import { RecordFindingForm } from "@/components/RecordFinding";
 import { FeaturesChart, ReadingsChart, SourceGate } from "@/components/SensorCharts";
 import { UploadInspection } from "@/components/UploadInspection";
@@ -157,7 +158,8 @@ function DeviceDetails({ d, comp }: { d: Device; comp?: Component }) {
       {d.device_type !== "camera" ? (
         <SourceGate device={d}>{(src) => (
           <div className="space-y-3">
-            {(d.capabilities ?? ["acceleration"]).includes("acceleration") && <ReadingsChart device={d} source={src} height={140} />}
+            {(d.capabilities ?? ["acceleration"]).includes("acceleration") && <SummaryChart device={d} source={src} height={140} hideWhenEmpty />}
+            {(d.capabilities ?? ["acceleration"]).includes("acceleration") && <ReadingsChart device={d} source={src} height={140} hideWhenEmpty />}
             {(d.capabilities ?? ["acceleration"]).includes("acceleration") && <FeaturesChart device={d} source={src} height={150} limit={120} />}
             {(d.capabilities ?? []).some((c) => c === "temperature" || c === "humidity") && <EnvironmentChart device={d} source={src} height={140} />}
             <Link className="btn-ghost" to={`/sensors?device=${d.id}`}>Open in Sensor Analytics</Link>

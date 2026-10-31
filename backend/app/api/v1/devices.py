@@ -80,6 +80,17 @@ def patch_device(device_id: str, body: DevicePatch, db: Session = Depends(get_se
         comp = get_or_404(db, Component, changes["component_id"], "Component")
         if comp.asset_id != dev.asset_id:
             raise HTTPException(400, "Component belongs to a different asset")
+    if "config" in changes:
+        new = changes.pop("config") or {}
+        allowed = {"mqtt_topic", "mqtt_token_required", "env_sensor", "summary_interval_s"}
+        if set(new) - allowed:
+            raise HTTPException(422, f"Configurable keys: {sorted(allowed)}")
+        if new.get("mqtt_topic"):
+            clash = next((o for o in db.query(Device).filter(Device.id != dev.id).all()
+                          if ((o.config or {}).get("mqtt_topic") or "").strip("/") == new["mqtt_topic"].strip("/")), None)
+            if clash:
+                raise HTTPException(409, f"Topic already bound to {clash.id}")
+        dev.config = {**(dev.config or {}), **new}
     for k, v in changes.items():
         setattr(dev, k, v)
     log_event(db, event_type="config_changed", title=f"Device {dev.name} updated", asset_id=dev.asset_id, device_id=dev.id, data={"fields": sorted(changes)})
@@ -138,3 +149,18 @@ def delete_device(device_id: str, actor: str | None = None, db: Session = Depend
     db.commit()
     broadcaster.publish("devices", {"asset_id": asset_id})
     return {"deleted": device_id}
+
+
+@router.post("/devices/{device_id}/tilt-reference")
+def tilt_reference(device_id: str, value: float | None = None, db: Session = Depends(get_session)):
+    """Set the tilt reference (degrees) used by the tilt-change alert; default = mean of the last 60 s."""
+    from app.services.summaries import reset_tilt_reference
+
+    dev = get_or_404(db, Device, device_id, "Device")
+    try:
+        res = reset_tilt_reference(db, dev, value)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    log_event(db, event_type="config_changed", title=f"Tilt reference of {dev.name} set to {res['tilt_reference_deg']}°", asset_id=dev.asset_id, device_id=dev.id)
+    db.commit()
+    return res

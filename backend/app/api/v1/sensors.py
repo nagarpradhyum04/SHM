@@ -227,3 +227,22 @@ def mqtt_status():
     from app.services.mqtt_bridge import bridge
 
     return bridge.status()
+
+
+@router.get("/sensors/{device_id}/summaries")
+def summaries_series(device_id: str, source: str | None = Source, start: datetime | None = None, end: datetime | None = None,
+                     limit: int = Query(600, ge=1, le=20000), db: Session = Depends(get_session)):
+    """Device-computed vibration summaries (vib RMS, peak, tilt) — newest last."""
+    from app.models import SensorSummary
+
+    get_or_404(db, Device, device_id, "Device")
+    q = db.query(SensorSummary).filter(SensorSummary.device_id == device_id)
+    if source:
+        q = q.filter(SensorSummary.source == source)
+    if start:
+        q = q.filter(SensorSummary.ts >= ensure_utc(start))
+    if end:
+        q = q.filter(SensorSummary.ts <= ensure_utc(end))
+    rows = list(reversed(q.order_by(SensorSummary.ts.desc()).limit(limit).all()))
+    return [{"ts": r.ts, "vib_rms_g": r.vib_rms_g, "peak_g": r.peak_g, "tilt_deg": r.tilt_deg, "device_level": r.device_level,
+             "mpu_ok": r.mpu_ok, "dht_ok": r.dht_ok, "time_source": r.time_source, "source": r.source} for r in rows]

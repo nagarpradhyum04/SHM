@@ -54,7 +54,12 @@ def system_status(db: Session = Depends(get_session)):
     reg = get_model_registry()
     readings = dict(db.query(SensorReading.source, func.count()).group_by(SensorReading.source).all())
     features = dict(db.query(VibrationFeature.source, func.count()).group_by(VibrationFeature.source).all())
-    last_real = db.query(func.max(SensorReading.received_at)).filter(SensorReading.source == "real").scalar()
+    from app.models import SensorSummary
+
+    for src, n in db.query(SensorSummary.source, func.count()).group_by(SensorSummary.source).all():
+        readings[f"{src} (summaries)"] = n
+    last_real = max([t for t in (db.query(func.max(SensorReading.received_at)).filter(SensorReading.source == "real").scalar(),
+                                 db.query(func.max(SensorSummary.received_at)).filter(SensorSummary.source == "real").scalar()) if t], default=None)
     return {
         "app": s.app_name,
         "environment": s.environment,
@@ -66,7 +71,7 @@ def system_status(db: Session = Depends(get_session)):
         "simulation": get_setting(db, "simulation"),
         "readings_by_source": readings,
         "features_by_source": features,
-        "real_data_configured": bool(readings.get("real")),
+        "real_data_configured": bool(readings.get("real") or readings.get("real (summaries)")),
         "last_real_reading_received_at": last_real,
         "device_auth_required": s.device_auth_required,
         "shared_device_key_configured": bool(s.device_shared_key),

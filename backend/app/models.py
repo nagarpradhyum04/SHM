@@ -275,6 +275,33 @@ class SensorReading(Base):
     received_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class SensorSummary(Base):
+    """Device-computed vibration summaries (e.g. every 0.5 s: RMS and peak of dynamic acceleration, tilt).
+
+    Sent by firmware that does the signal processing on the ESP32 instead of streaming raw samples.
+    Window features are aggregated from these (feature version ``vib-summary-v1``); load-cycle counting
+    for fatigue needs the raw stream instead.
+    """
+
+    __tablename__ = "sensor_summaries"
+    __table_args__ = (Index("ix_summaries_device_ts", "device_id", "source", "ts"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"))
+    ts: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    seq: Mapped[int | None] = mapped_column(Integer)
+    vib_rms_g: Mapped[float | None] = mapped_column(Float)
+    peak_g: Mapped[float | None] = mapped_column(Float)
+    tilt_deg: Mapped[float | None] = mapped_column(Float)
+    device_level: Mapped[str | None] = mapped_column(String(20))  # the firmware's own label (CALM, LOW, …)
+    mpu_ok: Mapped[bool | None] = mapped_column(Boolean)
+    dht_ok: Mapped[bool | None] = mapped_column(Boolean)
+    time_source: Mapped[str] = mapped_column(String(10), default="device")  # device | server
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    processing_status: Mapped[str] = mapped_column(String(20), default="raw")
+    received_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class EnvironmentReading(Base):
     """Ambient temperature / relative humidity samples (e.g. DHT22 on the sensor node)."""
 
@@ -349,17 +376,18 @@ class VibrationFeature(Base):
     missing_ratio: Mapped[float | None] = mapped_column(Float)
     duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
     gap_count: Mapped[int] = mapped_column(Integer, default=0)
-    mean_x: Mapped[float] = mapped_column(Float)
-    mean_y: Mapped[float] = mapped_column(Float)
-    mean_z: Mapped[float] = mapped_column(Float)
-    std_x: Mapped[float] = mapped_column(Float)
-    std_y: Mapped[float] = mapped_column(Float)
-    std_z: Mapped[float] = mapped_column(Float)
-    rms_x: Mapped[float] = mapped_column(Float)
-    rms_y: Mapped[float] = mapped_column(Float)
-    rms_z: Mapped[float] = mapped_column(Float)
+    mean_x: Mapped[float | None] = mapped_column(Float)
+    mean_y: Mapped[float | None] = mapped_column(Float)
+    mean_z: Mapped[float | None] = mapped_column(Float)
+    std_x: Mapped[float | None] = mapped_column(Float)
+    std_y: Mapped[float | None] = mapped_column(Float)
+    std_z: Mapped[float | None] = mapped_column(Float)
+    rms_x: Mapped[float | None] = mapped_column(Float)
+    rms_y: Mapped[float | None] = mapped_column(Float)
+    rms_z: Mapped[float | None] = mapped_column(Float)
     rms_dyn: Mapped[float] = mapped_column(Float)
     peak_dyn: Mapped[float] = mapped_column(Float)
+    tilt_mean_deg: Mapped[float | None] = mapped_column(Float)
     feature_version: Mapped[str] = mapped_column(String(30))
     baseline_id: Mapped[str | None] = mapped_column(String(64))
     baseline_version: Mapped[int | None] = mapped_column(Integer)

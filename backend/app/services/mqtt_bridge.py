@@ -10,6 +10,11 @@ Topics (prefix configurable, default ``bridge``):
   The HTTP shape {"token": ..., "readings": [{seq, ts, ax, ay, az, ...}]} is also accepted.
 * ``<prefix>/<device_id>/env``    – {"token", "seq", "t_ms", "temp_c", "rh", "sensor": "DHT22"}
 * ``<prefix>/<device_id>/status`` – {"token", "fw", "rssi", "uptime_s", "ip", "mpu_ok", "env_ok"}
+* ``<prefix>/<device_id>/summary`` – device-computed summaries {"token", "vib", "peak", "tilt", "temp", "hum", …}
+  (see services/summaries.py)
+* any topic bound to a device in its configuration (``config.mqtt_topic``, e.g. ``bridge/sensors``) for firmware
+  that cannot send a device id. If the device sets ``mqtt_token_required: false`` such messages are accepted
+  without a token — only appropriate on a trusted network with a protected broker; the UI flags it.
 
 Every message is authenticated with the per-device ingestion token (same as the HTTP API) and
 validated by the same ingestion code, so MQTT and HTTP data are indistinguishable downstream
@@ -29,7 +34,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import Device
-from app.services import environment, ingestion
+from app.services import environment, ingestion, summaries
 from app.services.events import broadcaster
 from app.timeutil import utcnow
 
@@ -88,22 +93,36 @@ def _accel_readings(p: dict) -> list[dict]:
     return out
 
 
+def device_for_topic(db: Session, topic: str) -> Device | None:
+    t = topic.strip("/")
+    for dev in db.query(Device).filter(Device.device_type != "camera").all():
+        if ((dev.config or {}).get("mqtt_topic") or "").strip("/") == t:
+            return dev
+    return None
+
+
 def handle_message(db: Session, topic: str, raw: bytes, prefix: str | None = None) -> dict:
     """Process one MQTT message. Returns {"outcome": accepted|rejected, "detail", "device_id"}. Commits on success."""
     prefix = (prefix or get_settings().mqtt_topic_prefix).strip("/")
     parts = topic.strip("/").split("/")
-    if len(parts) != 3 or parts[0] != prefix or parts[2] not in ("accel", "env", "status"):
+    bound = device_for_topic(db, topic)
+    if bound is not None:
+        device_id, kind = bound.id, "summary"
+    elif len(parts) == 3 and parts[0] == prefix and parts[2] in ("accel", "env", "status", "summary"):
+        device_id, kind = parts[1], parts[2]
+    else:
         return {"outcome": "rejected", "device_id": None,
-                "detail": f"Unrecognised topic. Expected {prefix}/<device_id>/accel|env|status (see docs/hardware-integration.md)."}
-    device_id, kind = parts[1], parts[2]
+                "detail": (f"Unrecognised topic. Use {prefix}/<device_id>/accel|env|status|summary, or bind this topic to a device "
+                           "(Device Registry → Edit → MQTT topic).")}
     try:
         p = json.loads(raw.decode("utf-8"))
         if not isinstance(p, dict):
             raise ValueError("payload must be a JSON object")
     except (UnicodeDecodeError, ValueError) as exc:
         return {"outcome": "rejected", "device_id": device_id, "detail": f"Invalid JSON: {exc}"}
-    dev = db.get(Device, device_id)
-    if dev is None or not ingestion.authenticate(dev, p.get("token")):
+    dev = bound or db.get(Device, device_id)
+    tokenless_ok = bound is not None and (bound.config or {}).get("mqtt_token_required") is False and not p.get("token")
+    if dev is None or not (tokenless_ok or ingestion.authenticate(dev, p.get("token"))):
         return {"outcome": "rejected", "device_id": device_id, "detail": "Unknown device or invalid token (register the device and copy its token into the firmware)."}
     if p.get("simulated") is True:
         return {"outcome": "rejected", "device_id": device_id, "detail": "Payload is flagged simulated; simulated values are never stored as real data."}
@@ -123,7 +142,9 @@ def handle_message(db: Session, topic: str, raw: bytes, prefix: str | None = Non
             return {"outcome": "accepted", "device_id": device_id, "detail": "status updated"}
         if dev.device_type == "camera":
             raise ValueError("camera devices do not publish sensor readings")
-        if kind == "accel":
+        if kind == "summary" or (kind == "accel" and summaries.is_summary_payload(p) and "ax" not in p and "readings" not in p):
+            res = summaries.ingest_summary(db, dev, p, "real")
+        elif kind == "accel":
             res = ingestion.ingest(db, dev, _accel_readings(p), "real")
         else:
             res = environment.ingest(db, dev, [p], "real")

@@ -173,7 +173,15 @@ function MqttCard() {
           <KV k="Messages" v={`${m.counts.received} received · ${m.counts.accepted} accepted · ${m.counts.rejected} rejected`} />
           <div className="label pt-1">Recent messages</div>
           <div className="max-h-56 overflow-auto rounded border border-white/5">
-            {m.recent.length === 0 ? <div className="p-2 text-[11px] text-slate-500">Nothing received yet. Check that the ESP32 publishes to this broker (laptop IP, port 1883) and that the firewall allows it.</div> : (
+            {m.recent.length === 0 ? (
+              <div className="space-y-1 p-2 text-[11px] text-slate-400">
+                <div className="text-slate-300">Nothing received yet. Even rejected messages are listed here, so the backend is not getting them at all.</div>
+                <div>1. Check the broker sees the ESP32: <code className="mono">mosquitto_sub -h 127.0.0.1 -t "bridge/#" -v</code> — if nothing appears, also try <code className="mono">-h &lt;laptop IP&gt;</code>.</div>
+                <div>2. If only the laptop-IP command shows data, two brokers are running (on Windows the "Mosquitto Broker" service listens on 127.0.0.1). Stop that service
+                  (<code className="mono">net stop mosquitto</code>, as administrator) or set <code className="mono">SS_MQTT_HOST=&lt;laptop IP&gt;</code> in <code className="mono">backend/.env</code> and restart the backend.</div>
+                <div>3. Allow TCP 1883 in the Windows firewall for private networks.</div>
+              </div>
+            ) : (
               <table className="table-base">
                 <tbody>{m.recent.map((r, i) => (
                   <tr key={i}><td className="mono">{fmtTime(r.ts)}</td><td className="mono">{r.topic}</td>
@@ -192,6 +200,7 @@ function LimitsCard({ vibration, environment }: { vibration: Record<string, any>
   const fields: { key: string; group: "vibration" | "environment"; label: string; hint: string }[] = [
     { key: "abs_rms_dyn_limit_g", group: "vibration", label: "Vibration RMS limit (g)", hint: "60 s window RMS of dynamic acceleration" },
     { key: "abs_peak_dyn_limit_g", group: "vibration", label: "Vibration peak limit (g)", hint: "largest dynamic deviation in a window" },
+    { key: "tilt_change_limit_deg", group: "vibration", label: "Tilt change limit (°)", hint: "vs the sensor's reference tilt (set at first data)" },
     { key: "temp_max_c", group: "environment", label: "Max temperature (°C)", hint: "" },
     { key: "temp_min_c", group: "environment", label: "Min temperature (°C)", hint: "" },
     { key: "humidity_max_pct", group: "environment", label: "Max humidity (%)", hint: "" },

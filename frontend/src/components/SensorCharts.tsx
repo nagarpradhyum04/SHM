@@ -30,11 +30,12 @@ export function SourceGate({ device, children }: { device: Device; children: (so
   return children(src);
 }
 
-export function ReadingsChart({ device, source, height = 160, live = true }: { device: Device; source?: string; height?: number; live?: boolean }) {
+export function ReadingsChart({ device, source, height = 160, live = true, hideWhenEmpty }: { device: Device; source?: string; height?: number; live?: boolean; hideWhenEmpty?: boolean }) {
   const q = useReadings(device.id, source, 300, live);
   if (q.isLoading) return <Loading label="Loading readings…" />;
   if (q.isError) return <ErrorState error={q.error} />;
   const rows = q.data ?? [];
+  if (!rows.length && hideWhenEmpty) return null;
   if (!rows.length) return <Empty title="No readings recorded">{device.data_source === "real" ? "No data has been received from this device." : "No simulated data generated yet."}</Empty>;
   const sources = [...new Set(rows.map((r) => r.source))];
   const last = rows[rows.length - 1];

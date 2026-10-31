@@ -33,6 +33,13 @@ def tick(state: dict) -> None:
                 feats = vibration.process_device(db, dev, source, now, on_anomaly=alert_engine.on_feature_anomaly)
                 if feats:
                     broadcaster.publish("features", {"device_id": dev_id, "source": source})
+        from app.models import SensorSummary
+        from app.services import summaries
+
+        for dev_id, source in db.query(SensorSummary.device_id, SensorSummary.source).filter(SensorSummary.processing_status == "raw").distinct().all():
+            dev = db.get(Device, dev_id)
+            if dev:
+                summaries.process_device(db, dev, source, now)
         alert_engine.evaluate_device_status(db, now)
         db.commit()  # alerts are durable before any message is attempted
         from app.services import notify
@@ -55,6 +62,10 @@ def apply_retention(db, now) -> int:
                                        SensorReading.ts < now - SIM_RAW_RETENTION).delete(synchronize_session=False)
     days = ret.get("raw_readings_days")
     if days:
+        from app.models import SensorSummary
+
+        n += db.query(SensorSummary).filter(SensorSummary.processing_status == "processed",
+                                            SensorSummary.ts < now - timedelta(days=days)).delete(synchronize_session=False)
         n += db.query(SensorReading).filter(SensorReading.source != "simulated", SensorReading.processing_status == "processed",
                                             SensorReading.ts < now - timedelta(days=days)).delete(synchronize_session=False)
     return n
