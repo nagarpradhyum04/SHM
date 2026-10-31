@@ -2,7 +2,7 @@ import clsx from "clsx";
 import { Box, ExternalLink, ImageOff, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, imageUrl } from "@/api/client";
+import { api, API_BASE, imageUrl } from "@/api/client";
 import { useApiMutation, useDefectDetail } from "@/api/hooks";
 import type { Clip, Defect, DefectDetail, ImageRec } from "@/api/types";
 import { useShowIn3D } from "@/hooks/useShowIn3D";
@@ -156,6 +156,9 @@ export function DefectEvidenceBody({ data, compact }: { data: DefectDetail; comp
         {d.description && <p className="mt-1 text-xs text-slate-300">{d.description}</p>}
       </div>
       {data.image ? <EvidenceImage image={data.image} defect={d} /> : <Notice>No image evidence attached to this finding.</Notice>}
+      {data.image && (d.image_region as { bbox?: unknown } | null)?.bbox ? (
+        <a className="btn-ghost" href={`${API_BASE}/defects/${d.id}/annotated.jpg`} target="_blank" rel="noreferrer">Open annotated photo (box + coordinates)</a>
+      ) : null}
       {(data.clips ?? []).map((c) => <ClipPlayer key={c.id} clip={c} />)}
       <div>
         <KV k="Observed" v={fmtDateTime(d.observed_at)} />

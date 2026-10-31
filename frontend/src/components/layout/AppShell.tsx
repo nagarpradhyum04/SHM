@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import {
-  Activity, Bell, Box, Building2, ChevronsLeft, ChevronsRight, ClipboardCheck, Cpu, FileText, Hourglass, History, Settings, ShieldAlert, Waves,
+  Activity, Bell, Box, Building2, ChevronsLeft, ChevronsRight, ClipboardCheck, Cpu, FileText, Hourglass, History, Settings, ShieldAlert, Video, Waves,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -12,6 +12,7 @@ export const NAV = [
   { to: "/twin", label: "Digital Twin", short: "3D Twin", icon: Box, group: "Monitor" },
   { to: "/alerts", label: "Alerts Center", short: "Alerts", icon: Bell, group: "Monitor" },
   { to: "/sensors", label: "Sensor Analytics", short: "Sensors", icon: Waves, group: "Monitor" },
+  { to: "/cameras", label: "Live cameras", short: "Live cameras", icon: Video, group: "Monitor" },
   { to: "/defects", label: "Defect Registry", short: "Defects", icon: ShieldAlert, group: "Inspect" },
   { to: "/inspections", label: "Inspections", short: "Inspections", icon: ClipboardCheck, group: "Inspect" },
   { to: "/rul", label: "Remaining Life", short: "Remaining life", icon: Hourglass, group: "Analyse" },

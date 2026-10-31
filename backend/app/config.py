@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     mqtt_topic_prefix: str = "bridge"
     mqtt_client_id: str = "structurasense-backend"
     max_model_mb: float = 150.0
-    max_clip_mb: float = 50.0
+    max_clip_mb: float = 200.0
 
     # Alert messages. Secrets may also be entered in Settings → Notifications (stored server-side, never returned).
     public_dashboard_url: str = "http://127.0.0.1:5173"

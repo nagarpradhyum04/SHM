@@ -161,7 +161,13 @@ def build_message(db: Session, alert: Alert) -> dict:
         if d.image_id:
             img = db.get(ImageRecord, d.image_id)
             if img and get_storage().exists(img.storage_key):
-                image_bytes = (get_storage().read(img.storage_key), img.content_type)
+                raw = get_storage().read(img.storage_key)
+                try:  # photo with the crack box and coordinates drawn on it
+                    from app.services.annotate import annotate
+
+                    image_bytes = (annotate(raw, d), "image/jpeg")
+                except ValueError:
+                    image_bytes = (raw, img.content_type)
     elif alert.message:
         lines.append(alert.message[:400])
     url = f"{get_settings().public_dashboard_url.rstrip('/')}/alerts?id={alert.id}"

@@ -115,15 +115,38 @@ def test_camera_agent_end_to_end(tmp_path):
             for i in range(60):
                 vw.write(np.full((120, 160, 3), 10 + (i % 5), np.uint8))  # dark frames → test model reports "crack"
             vw.release()
-            agent = subprocess.run([sys.executable, "-m", "edge.camera_agent", "--api", base, "--device-id", cam, "--token", token,
-                                    "--source", str(video), "--loop", "--fps", "10", "--interval", "2", "--pre", "1", "--post", "1",
-                                    "--keep-every", "0", "--preview-port", "0", "--run-for", "7"], cwd=BACKEND, capture_output=True, text=True, timeout=60)
-            assert "uploaded" in agent.stderr, agent.stderr[-2000:]
+            sock2 = socket.socket()
+            sock2.bind(("127.0.0.1", 0))
+            preview_port = sock2.getsockname()[1]
+            sock2.close()
+            agent = subprocess.Popen([sys.executable, "-m", "edge.camera_agent", "--api", base, "--device-id", cam, "--token", token,
+                                      "--source", str(video), "--loop", "--fps", "10", "--interval", "2", "--pre", "2", "--post", "3",
+                                      "--keep-every", "0", "--preview-port", str(preview_port), "--heartbeat", "1", "--run-for", "9"],
+                                     cwd=BACKEND, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            # live view relayed through the backend while the agent runs
+            snap = None
+            for _ in range(60):
+                snap = client.get(f"{API}/cameras/{cam}/snapshot.jpg")
+                if snap.status_code == 200:
+                    break
+                time.sleep(0.2)
+            assert snap.status_code == 200 and snap.content[:2] == b"\xff\xd8", snap.text[:200]
+            with client.stream("GET", f"{API}/cameras/{cam}/live", timeout=10) as live:
+                assert live.status_code == 200 and "multipart/x-mixed-replace" in live.headers["content-type"]
+                first = next(live.iter_bytes())
+                assert b"--frame" in first
+            out = agent.communicate(timeout=90)[0]
+            assert "uploaded" in out, out[-2000:]
             insps = client.get(f"{API}/inspections", params={"asset_id": "CAMA"}).json()
             assert len(insps) == 1 and insps[0]["inspection_type"] == "camera_capture"  # later detections suppressed
             clips = client.get(f"{API}/inspections/{insps[0]['id']}/clips").json()
-            assert len(clips) == 1 and clips[0]["duration_s"] > 0.5  # pre-roll is shorter when the first detection is at start-up
-            assert client.get(f"{API}/devices/{cam}").json()["connection"]["status"] == "online"
+            assert len(clips) == 1 and clips[0]["duration_s"] >= 2.5  # includes the 3 s recorded AFTER the detection
+            defect = client.get(f"{API}/inspections/{insps[0]['id']}").json()["defects"][0]
+            ann = client.get(f"{API}/defects/{defect['id']}/annotated.jpg")
+            assert ann.status_code == 200 and ann.content[:2] == b"\xff\xd8"
+            det = client.get(f"{API}/cameras/{cam}/detections").json()
+            assert det[0]["defect"]["id"] == defect["id"] and len(det[0]["clips"]) == 1
+            assert det[0]["annotated_url"].endswith(f"/defects/{defect['id']}/annotated.jpg")
     finally:
         server.terminate()
         server.wait(10)

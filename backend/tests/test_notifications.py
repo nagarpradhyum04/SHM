@@ -86,7 +86,7 @@ def test_crack_detection_sends_telegram_photo_with_coordinates(notified_client, 
     photo = [q for q in mock_server.requests if q["path"].endswith("/sendPhoto")]
     assert photo and "/bot123456:ABCDEFSECRETTOKEN/" in photo[0]["path"]
     body = photo[0]["body"]
-    assert b"\x89PNG" in body  # the crack photo itself is attached
+    assert b"\xff\xd8\xff" in body and 'filename="crack.jpeg"' in body.decode("latin-1")  # annotated crack photo attached
     text = body.decode("utf-8", "ignore")
     assert "Crack in photo: x " in text and "On 3D model: (" in text and "camera ray on the surface mesh" in text
     assert "GPS: 23.02" in text and "maps.google.com" in text and 'name="chat_id"' in text
@@ -182,7 +182,7 @@ def test_email_with_photo(notified_client, monkeypatch, make_asset):
     _dispatch()
     m = next(x[1] for x in sent if x[0] == "msg")
     assert m["To"] == "eng@example.com" and "crack" in m["Subject"].lower()
-    assert any(p.get_filename() == "crack.png" for p in m.iter_attachments())
+    assert any(p.get_filename() == "crack.jpeg" for p in m.iter_attachments())  # annotated photo
     assert "Crack in photo" in m.get_body(("plain",)).get_content()
 
 

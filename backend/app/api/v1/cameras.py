@@ -167,3 +167,66 @@ def heartbeat(device_id: str, body: HeartbeatIn, x_device_token: str | None = He
 
 
 
+
+
+def _upstream(dev: Device, path: str) -> str:
+    if not dev.stream_url or not dev.stream_url.startswith(("http://", "https://")):
+        raise HTTPException(404, "This camera has no live stream (start the camera agent)")
+    base = dev.stream_url.rsplit("/", 1)[0]
+    return f"{base}/{path}"
+
+
+@router.get("/cameras/{device_id}/live")
+def live(device_id: str, db: Session = Depends(get_session)):
+    """Relay of the camera agent's MJPEG live view, so the dashboard works from other devices on the network.
+    The upstream URL is the one the authenticated agent reported in its heartbeat."""
+    import urllib.request
+
+    from fastapi.responses import StreamingResponse
+
+    dev = get_or_404(db, Device, device_id, "Camera")
+    url = _upstream(dev, "stream")
+    try:
+        up = urllib.request.urlopen(url, timeout=5)
+    except OSError as exc:
+        raise HTTPException(502, f"Camera agent not reachable at {url}: {exc}") from exc
+
+    def chunks():
+        try:
+            while True:
+                b = up.read(16384)
+                if not b:
+                    break
+                yield b
+        finally:
+            up.close()
+
+    return StreamingResponse(chunks(), media_type=up.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
+                             headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/cameras/{device_id}/snapshot.jpg")
+def snapshot(device_id: str, db: Session = Depends(get_session)):
+    import urllib.request
+
+    dev = get_or_404(db, Device, device_id, "Camera")
+    url = _upstream(dev, "snapshot.jpg")
+    try:
+        with urllib.request.urlopen(url, timeout=5) as up:
+            return Response(up.read(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    except OSError as exc:
+        raise HTTPException(502, f"Camera agent not reachable: {exc}") from exc
+
+
+@router.get("/cameras/{device_id}/detections")
+def camera_detections(device_id: str, limit: int = 10, db: Session = Depends(get_session)):
+    """Most recent findings from this camera with their clips and coordinates (for the live-camera page)."""
+    get_or_404(db, Device, device_id, "Camera")
+    rows = (db.query(Defect, Inspection).join(Inspection, Defect.inspection_id == Inspection.id)
+            .filter(Inspection.device_id == device_id).order_by(Defect.observed_at.desc()).limit(min(limit, 50)).all())
+    out = []
+    for d, insp in rows:
+        clips = db.query(MediaClip).filter(MediaClip.inspection_id == insp.id).all()
+        out.append({"defect": DefectOut.model_validate(d), "inspection_id": insp.id, "annotated_url": f"/api/v1/defects/{d.id}/annotated.jpg",
+                    "clips": [clip_out(c) for c in clips]})
+    return out

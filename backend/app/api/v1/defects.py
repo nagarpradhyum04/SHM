@@ -159,3 +159,19 @@ def project(body: ProjectionIn, db: Session = Depends(get_session)):
         return project_pixel_to_component(cam, comp, body.u, body.v, asset=db.get(Asset, comp.asset_id), storage=get_storage())
     except SpatialMappingError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/defects/{defect_id}/annotated.jpg")
+def annotated_photo(defect_id: str, db: Session = Depends(get_session)):
+    """The evidence photo with the crack region, centre and coordinates drawn on it."""
+    from fastapi.responses import Response
+
+    from app.services.annotate import annotate
+    from app.services.storage import get_storage
+
+    d = get_or_404(db, Defect, defect_id, "Defect")
+    img = db.get(ImageRecord, d.image_id) if d.image_id else None
+    if img is None or not get_storage().exists(img.storage_key):
+        raise HTTPException(404, "No evidence photo for this finding")
+    return Response(annotate(get_storage().read(img.storage_key), d), media_type="image/jpeg",
+                    headers={"Content-Disposition": f'inline; filename="{d.id}-annotated.jpg"'})

@@ -37,6 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 log = logging.getLogger("camera_agent")
 
@@ -65,19 +66,43 @@ def post_json(url: str, body: dict, token: str, timeout=10) -> dict:
 
 
 class FrameBuffer:
-    def __init__(self, seconds: float, fps: float):
+    """Ring buffer of JPEG-compressed frames (60 s of 720p at 10 fps ≈ 50 MB instead of ≈ 1.6 GB raw)
+    plus the latest raw frame for analysis/preview and an optional detection overlay for the preview."""
+
+    def __init__(self, seconds: float, fps: float, quality: int = 80):
         self.frames: deque = deque(maxlen=max(1, int(seconds * fps)))
         self.lock = threading.Lock()
         self.latest = None
+        self.quality = quality
+        self.overlay: dict | None = None  # {"bbox": [x0,y0,x1,y1], "label": str, "until": epoch}
 
     def add(self, ts: float, frame):
+        ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         with self.lock:
-            self.frames.append((ts, frame))
+            if ok:
+                self.frames.append((ts, jpg.tobytes()))
             self.latest = (ts, frame)
 
-    def window(self, t0: float, t1: float):
+    def window(self, t0: float, t1: float) -> list[tuple[float, bytes]]:
         with self.lock:
             return [(t, f) for t, f in self.frames if t0 <= t <= t1]
+
+    def newest_ts(self) -> float:
+        with self.lock:
+            return self.frames[-1][0] if self.frames else 0.0
+
+    def preview_frame(self):
+        latest = self.latest
+        if latest is None:
+            return None
+        frame = latest[1]
+        ov = self.overlay
+        if ov and time.time() < ov["until"]:
+            frame = frame.copy()
+            x0, y0, x1, y1 = (int(v) for v in ov["bbox"])
+            cv2.rectangle(frame, (x0, y0), (x1, y1), (0, 0, 255), 3)
+            cv2.putText(frame, ov["label"], (x0, max(20, y0 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
+        return frame
 
 
 class Capture(threading.Thread):
@@ -130,20 +155,45 @@ def list_cameras(max_index: int = 6) -> list[dict]:
     return found
 
 
-def write_clip(frames, fps: float) -> bytes | None:
+def write_clip(frames: list[tuple[float, bytes]], fps: float, max_width: int = 960) -> bytes | None:
+    """Encode buffered JPEG frames as a browser-playable WebM (VP8), downscaled to ``max_width``."""
     if not frames:
         return None
-    h, w = frames[0][1].shape[:2]
+    first = cv2.imdecode(np.frombuffer(frames[0][1], np.uint8), cv2.IMREAD_COLOR)
+    h, w = first.shape[:2]
+    if w > max_width:
+        h, w = int(h * max_width / w), max_width
     with tempfile.TemporaryDirectory() as d:
         path = str(Path(d) / "clip.webm")
         vw = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"VP80"), fps, (w, h))
         if not vw.isOpened():
             log.error("VP8/WebM encoder unavailable in this OpenCV build; clip not written")
             return None
-        for _, f in frames:
-            vw.write(f if f.shape[:2] == (h, w) else cv2.resize(f, (w, h)))
+        for _, jpg in frames:
+            f = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            if f is not None:
+                vw.write(f if f.shape[:2] == (h, w) else cv2.resize(f, (w, h), interpolation=cv2.INTER_AREA))
         vw.release()
         return Path(path).read_bytes()
+
+
+def record_clip(api: str, token: str, buf: FrameBuffer, inspection_id: str, ts: float, pre: float, post: float, fps: float) -> None:
+    """Wait until ``post`` seconds after the detection are buffered, then upload pre+post seconds as one clip."""
+    deadline = time.time() + post + 15
+    while buf.newest_ts() < ts + post and time.time() < deadline:
+        time.sleep(0.5)
+    frames = buf.window(ts - pre, ts + post)
+    clip = write_clip(frames, fps)
+    if not clip:
+        return
+    try:
+        post_multipart(f"{api}/inspections/{inspection_id}/clip",
+                       {"started_at": iso(frames[0][0]), "duration_s": f"{frames[-1][0] - frames[0][0]:.2f}"},
+                       "file", "clip.webm", clip, "video/webm", token, timeout=300)
+        log.info("uploaded %.1f s clip (%.1f s before + %.1f s after, %d frames, %d KB)", frames[-1][0] - frames[0][0],
+                 ts - frames[0][0], frames[-1][0] - ts, len(frames), len(clip) // 1024)
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        log.error("clip upload failed: %s", exc)
 
 
 def make_preview_server(buf: FrameBuffer, bind: str, port: int):
@@ -153,11 +203,11 @@ def make_preview_server(buf: FrameBuffer, bind: str, port: int):
 
         def do_GET(self):
             if self.path.startswith("/snapshot"):
-                latest = buf.latest
-                if latest is None:
+                frame = buf.preview_frame()
+                if frame is None:
                     self.send_error(503, "no frame yet")
                     return
-                ok, jpg = cv2.imencode(".jpg", latest[1], [cv2.IMWRITE_JPEG_QUALITY, 80])
+                ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 self.send_response(200)
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Access-Control-Allow-Origin", "*")
@@ -173,9 +223,9 @@ def make_preview_server(buf: FrameBuffer, bind: str, port: int):
             self.end_headers()
             try:
                 while True:
-                    latest = buf.latest
-                    if latest is not None:
-                        ok, jpg = cv2.imencode(".jpg", latest[1], [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    frame = buf.preview_frame()
+                    if frame is not None:
+                        ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                         self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n")
                     time.sleep(0.2)
             except (BrokenPipeError, ConnectionResetError):
@@ -204,7 +254,9 @@ def run(args) -> None:
         log.info("live preview at %s", stream_url)
     last_keep = 0.0
     last_beat = 0.0
+    clip_threads: list[threading.Thread] = []
     deadline = time.time() + args.run_for if args.run_for else None
+    log.info("analysing a frame every %.0f s; clips keep %.0f s before + %.0f s after a detection", args.interval, args.pre, args.post)
     while deadline is None or time.time() < deadline:
         now = time.time()
         try:
@@ -228,15 +280,20 @@ def run(args) -> None:
                 log.info("finding already open (%s); not stored again", res["suppressed_by"])
             elif res.get("stored"):
                 log.info("stored inspection %s (%s, %d finding(s))", res["inspection"]["id"], res["model_status"], len(res["defects"]))
+            if res.get("defects"):
+                d = res["defects"][0]
+                region = d.get("image_region") or {}
+                if region.get("bbox"):
+                    where = f" @ ({d['pos_x']:.2f}, {d['pos_y']:.2f}, {d['pos_z']:.2f}) m" if d.get("pos_x") is not None else ""
+                    buf.overlay = {"bbox": region["bbox"], "label": f"{d['category'].replace('_', ' ')} {d.get('model_confidence') or 0:.2f}{where}",
+                                   "until": time.time() + 15}
+                log.info("DETECTED %s (%s) — %s", d["category"], d["id"], d.get("localization_notes") or "")
             if res.get("request_clip") and res.get("inspection"):
-                time.sleep(args.post)
-                frames = buf.window(ts - args.pre, ts + args.post)
-                clip = write_clip(frames, args.fps)
-                if clip:
-                    post_multipart(f"{api}/inspections/{res['inspection']['id']}/clip",
-                                   {"started_at": iso(frames[0][0]), "duration_s": f"{frames[-1][0] - frames[0][0]:.2f}"},
-                                   "file", "clip.webm", clip, "video/webm", args.token, timeout=120)
-                    log.info("uploaded %.1f s clip (%d frames, %d KB)", frames[-1][0] - frames[0][0], len(frames), len(clip) // 1024)
+                # finish the clip in the background so analysis continues while the next seconds are recorded
+                t = threading.Thread(target=record_clip, args=(api, args.token, buf, res["inspection"]["id"], ts, args.pre, args.post, args.fps),
+                                     daemon=True, name="clip")
+                t.start()
+                clip_threads.append(t)
         except urllib.error.HTTPError as exc:
             log.error("backend rejected request: %s %s", exc.code, exc.read()[:300])
             if exc.code == 401:
@@ -244,6 +301,8 @@ def run(args) -> None:
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             log.warning("backend unreachable: %s (retrying)", exc)
         time.sleep(max(0.0, args.interval - (time.time() - now)))
+    for t in clip_threads:  # let pending clip uploads finish (--run-for / shutdown)
+        t.join(timeout=args.post + 60)
     cap.running = False
 
 
@@ -257,9 +316,9 @@ def main() -> None:
     ap.add_argument("--loop", action="store_true", help="loop a video file source")
     ap.add_argument("--fps", type=float, default=10)
     ap.add_argument("--width", type=int, default=1280)
-    ap.add_argument("--interval", type=float, default=5, help="seconds between analysed frames")
-    ap.add_argument("--pre", type=float, default=5, help="clip seconds before the detection")
-    ap.add_argument("--post", type=float, default=5, help="clip seconds after the detection")
+    ap.add_argument("--interval", type=float, default=2, help="seconds between analysed frames")
+    ap.add_argument("--pre", type=float, default=30, help="clip seconds before the detection")
+    ap.add_argument("--post", type=float, default=30, help="clip seconds after the detection")
     ap.add_argument("--keep-every", type=float, default=3600, help="store a reference snapshot this often (0 = never)")
     ap.add_argument("--heartbeat", type=float, default=30)
     ap.add_argument("--preview-port", type=int, default=8081, help="0 disables the MJPEG preview")
