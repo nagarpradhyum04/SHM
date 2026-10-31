@@ -61,6 +61,10 @@ and delete `backend/data/`.
 * **Your own 3D model:** Infrastructure Assets → *Upload 3D model (.glb)*; named parts become components.
   Place devices from the Digital Twin with *Add device here* → *Edit placement* (pick on surface, aim cameras).
 
+* **MQTT "0 received"?** Settings → *Check connection* finds which broker your ESP32 really talks to; on
+  Windows `scripts\start-broker.ps1` (as administrator) makes Mosquitto listen on the network.
+* **Crack model:** Settings → *AI model* → **Train & install** downloads the public dataset, trains and installs it.
+
 * **Message alerts:** Settings → *Messages* — Telegram (with the crack photo), email, SMS or webhook (ntfy/Discord/Slack), including the crack's photo coordinates, 3D point and GPS.
 
 Step-by-step guide: [docs/hardware-integration.md](docs/hardware-integration.md).
@@ -137,13 +141,20 @@ node frontend/e2e/smoke.mjs             # browser smoke test against running ser
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` (76 tests, adding: ESP32 summary payloads (your exact CALM/SEVERE messages) → windows, limits and tilt-change alerts, live-view relay + 30 s pre/post clip duration + annotated photo + per-camera detections, tile-scan crack localisation, camera ray → real surface mesh (GLB and procedural), calibrated-intrinsics scaling + GPS, checkerboard calibration recovering a known lens within 2 %, message alerts via Telegram/SMS/webhook mock servers and SMTP with retries/escalation/filters, fatigue RUL (ASTM E1049 rainflow reference example, EN 1993-1-9 S-N, end-to-end result within 2 % of a hand calculation), device deletion, API index, model install, MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 76 passed |
+| Backend `pytest` (85 tests, adding: MQTT connection check against real Mosquitto brokers reproducing the Windows two-broker / localhost-only / silent / wrong-topic cases, broker switch, training job (progress, install, failure reasons), model re-install replacing the loaded model, ESP32 summary payloads (your exact CALM/SEVERE messages) → windows, limits and tilt-change alerts, live-view relay + 30 s pre/post clip duration + annotated photo + per-camera detections, tile-scan crack localisation, camera ray → real surface mesh (GLB and procedural), calibrated-intrinsics scaling + GPS, checkerboard calibration recovering a known lens within 2 %, message alerts via Telegram/SMS/webhook mock servers and SMTP with retries/escalation/filters, fatigue RUL (ASTM E1049 rainflow reference example, EN 1993-1-9 S-N, end-to-end result within 2 % of a hand calculation), device deletion, API index, model install, MQTT handler + end-to-end through a real Mosquitto broker, environment ingestion/thresholds/dew point, absolute vibration limit without baseline, camera frames/clips/suppression/heartbeat, webcam agent end-to-end against a live uvicorn, GLB upload/bounds/ID-preserving re-upload, DHT11 rated-range flagging) | 85 passed |
 | Frontend `tsc` typecheck + `vitest` (20 tests, adding placement/aim maths, GLB node mapping, scene framing) | clean · 20 passed |
 | Browser e2e `frontend/e2e/smoke.mjs` (adds device placement tab, API index) | 11/11 passed |
 | Firmware `esp32_mqtt_node.ino` | g++ syntax/type check against API stubs; its payload-building code run on the host and accepted by the backend MQTT handler. **Not compiled for or flashed to an ESP32** (toolchain download blocked in this environment). |
 | Manual run: emulated node over MQTT (scratch harness, not committed) | readings/env/status ingested; 60 s windows; limit alert fired only for the window above the configured limit; node went Stale when publishing stopped |
 
 The test-only ONNX model used by inference tests is generated inside the tests and is not a crack detector.
+
+Manual run of *Settings → AI model → Train & install* (PyTorch 2.15 CPU, 800 **synthetic** line-on-noise images
+in the Mendeley zip layout — a pipeline check, not a crack model): zip extracted, trained, exported, installed;
+a crack image uploaded afterwards produced a `suspected_crack` finding and a clean image none. The automatic
+Mendeley download could not be tested here (host blocked) and failed with the clear message shown in the UI;
+`.rar` extraction (Windows `tar` / 7-Zip) is untested. This run found and fixed two bugs: miscalibrated
+BatchNorm statistics in eval mode, and a re-installed model not replacing the loaded one.
 
 ## Roadmap (next phases)
 

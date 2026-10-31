@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import re
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_or_404, get_session
@@ -226,6 +228,44 @@ def environment_series(device_id: str, source: str | None = Source, start: datet
 def mqtt_status():
     from app.services.mqtt_bridge import bridge
 
+    return bridge.status()
+
+
+@router.post("/mqtt/diagnose")
+def mqtt_diagnose(listen_s: float = Query(4.0, ge=1, le=15)):
+    """Probe the brokers on this computer and say where the device's messages actually go (takes ~listen_s seconds)."""
+    from app.config import get_settings
+    from app.services.mqtt_bridge import bridge
+    from app.services.mqtt_diag import diagnose
+
+    s = get_settings()
+    return diagnose(bridge.host, s.mqtt_port, s.mqtt_topic_prefix.strip("/"), s.mqtt_username, s.mqtt_password, listen_s)
+
+
+class BrokerIn(BaseModel):
+    host: str | None = None
+
+
+@router.put("/mqtt/broker")
+def mqtt_use_broker(body: BrokerIn, db: Session = Depends(get_session)):
+    """Connect the backend to another broker address (null = back to SS_MQTT_HOST). Persists across restarts."""
+    import ipaddress
+
+    from app.services.events import log_event
+    from app.services.mqtt_bridge import bridge
+    from app.services.settings_store import set_setting
+
+    host = (body.host or "").strip() or None
+    if host:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            if not re.fullmatch(r"[A-Za-z0-9.\-]{1,253}", host):
+                raise HTTPException(422, "host must be an IP address or host name") from None
+    set_setting(db, "mqtt_broker", {"host": host})
+    log_event(db, event_type="config_changed", title=f"MQTT broker set to {host or 'default'}")
+    db.commit()
+    bridge.restart()
     return bridge.status()
 
 

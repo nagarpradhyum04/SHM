@@ -89,6 +89,27 @@ def build_model(torch):
     return nn.Sequential(block(3, 16), block(16, 32), block(32, 64), nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Dropout(0.2), nn.Linear(64, 2))
 
 
+def recalibrate_bn(torch, model, data_dir, items, size, batch=128, max_items=3000) -> None:
+    """Recompute BatchNorm running statistics with the final weights (cumulative average over training images).
+    Without this, the running averages lag behind fast-changing weights and eval-mode probabilities are badly
+    miscalibrated (observed: crack images scoring 0.27 in eval mode vs 0.92 in train mode)."""
+    bns = [m for m in model.modules() if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)]
+    if not bns:
+        return
+    saved = [m.momentum for m in bns]
+    for m in bns:
+        m.reset_running_stats()
+        m.momentum = None  # cumulative moving average
+    model.train()
+    sample = items[:max_items]
+    with torch.no_grad():
+        for i in range(0, len(sample), batch):
+            model(torch.from_numpy(np.stack([load(data_dir, r, size) for r, _ in sample[i : i + batch]])))
+    for m, mom in zip(bns, saved):
+        m.momentum = mom
+    model.eval()
+
+
 def predict_scores(torch, model, data_dir, items, size, batch=128) -> np.ndarray:
     model.eval()
     out = []
@@ -104,6 +125,18 @@ def sha256_of_list(items) -> str:
     for rel, label in sorted(items):
         h.update(f"{label}\t{rel}\n".encode())
     return h.hexdigest()
+
+
+def export_onnx(torch, model, size: int, path: Path) -> None:
+    """Classic TorchScript exporter where available (no extra packages); newer torch releases default to the
+    dynamo exporter, which additionally needs 'onnxscript'."""
+    import inspect
+
+    kw = dict(input_names=["input"], output_names=["probabilities"], dynamic_axes={"input": {0: "batch"}, "probabilities": {0: "batch"}},
+              opset_version=17)
+    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+        kw["dynamo"] = False
+    torch.onnx.export(model, torch.zeros(1, 3, size, size), str(path), **kw)
 
 
 def main() -> None:
@@ -166,6 +199,7 @@ def main() -> None:
             opt.step()
             total += float(loss) * len(chunk)
             n += len(chunk)
+        recalibrate_bn(torch, model, args.data_dir, train, args.size)
         val_scores = predict_scores(torch, model, args.data_dir, splits["val"], args.size)
         val_m = binary_metrics([l for _, l in splits["val"]], val_scores, 0.5)
         history.append({"epoch": epoch + 1, "train_loss": round(total / n, 4), "val_f1@0.5": val_m["f1"], "val_recall@0.5": val_m["recall"], "seconds": round(time.time() - t0, 1)})
@@ -177,8 +211,7 @@ def main() -> None:
     val_metrics = binary_metrics(val_y, val_scores, threshold)
 
     export = torch.nn.Sequential(model, torch.nn.Softmax(dim=1)).eval()
-    torch.onnx.export(export, torch.zeros(1, 3, args.size, args.size), str(args.out / "model.onnx"), input_names=["input"],
-                      output_names=["probabilities"], dynamic_axes={"input": {0: "batch"}, "probabilities": {0: "batch"}}, opset_version=17)
+    export_onnx(torch, export, args.size, args.out / "model.onnx")
 
     card = {
         "id": args.model_id, "name": "Concrete crack / no-crack CNN", "version": args.version, "task": "classification",

@@ -92,18 +92,26 @@ every 0.5 s is accepted once the topic is bound to a device:
 
 ### 4c. Settings shows "0 received"
 
-The backend connects to `SS_MQTT_HOST` (default `127.0.0.1:1883`). On Windows the Mosquitto installer
-also starts a **Mosquitto service** that listens only on 127.0.0.1 — the ESP32 then talks to the broker
-you started with `listener 1883 0.0.0.0`… or to nothing. Check:
+Press **Settings → Overview → IoT connection → Check connection**. For 5 s the backend connects to every
+broker on this computer (127.0.0.1 and each network address), sends a probe to tell which addresses are the
+same broker, and lists the topics it sees. It then says which case you are in:
+
+| Result | Meaning | Fix |
+|---|---|---|
+| *messages are on a different broker at 192.168.x.x* | Two brokers: the Windows Mosquitto service on 127.0.0.1 (backend) and the one the ESP32 reaches | Click **Use 192.168.x.x** (remembered), or run the script below so only one broker exists |
+| *only accepts connections from this computer* | Mosquitto 2 default: listens on localhost only, the ESP32 cannot connect at all | Run `scripts\start-broker.ps1` as administrator (below) |
+| *reachable … but nothing published* | Broker fine; the ESP32 is not publishing to it | ESP32 Serial Monitor must show MQTT connected; `MQTT_HOST` = the laptop IP shown; same Wi-Fi; firewall |
+| *arrive, but on `sensors`* | Topic outside `bridge/…` | Use a `bridge/…` topic and bind it to the device |
+
+**One-time broker fix (Windows):** open PowerShell *as administrator* in the project folder and run
 
 ```
-mosquitto_sub -h 127.0.0.1 -t "bridge/#" -v          # what the backend sees
-mosquitto_sub -h 192.168.29.107 -t "bridge/#" -v     # what the ESP32 reaches (your laptop IP)
+powershell -ExecutionPolicy Bypass -File scripts\start-broker.ps1
 ```
 
-If only the second shows messages: `net stop mosquitto` (admin prompt) and start your configured broker,
-or set `SS_MQTT_HOST=192.168.29.107` in `backend/.env` and restart the backend. If neither shows messages:
-allow TCP 1883 in Windows Firewall and check `MQTT_HOST` in the sketch is the laptop's current IPv4.
+It stops stray brokers, adds `listener 1883 0.0.0.0` + `allow_anonymous true` to the Mosquitto service
+config (backup kept), starts the service with Windows and allows TCP 1883 on private networks (it warns if
+your Wi-Fi is set to *Public*). Afterwards the backend and the ESP32 use the same broker.
 
 ## 5. Vibration alerts ("if it exceeds the limit")
 
@@ -161,20 +169,23 @@ condensation margin (air temperature − dew point), after N consecutive samples
 
 **Important:** crack detection needs a trained model. Without one the agent still streams the live view
 and stores the hourly reference photos, but nothing is "detected". Train the CNN on your laptop (the
-dataset cannot be bundled; ~250 MB download, CC BY 4.0):
+dataset cannot be bundled; ~235 MB download, CC BY 4.0):
 
-1. Download *Concrete Crack Images for Classification* from https://data.mendeley.com/datasets/5y9wdsg2zt/2
-   (if it contains a `.rar`, extract it with 7-Zip).
-2. With the backend running:
-   ```
-   cd backend
-   .venv\Scripts\pip install torch onnx
-   .venv\Scripts\python -m ml.setup_crack_model --data-dir "C:\Users\<you>\Downloads\5y9wdsg2zt-2.zip"
-   ```
-   (`--data-dir` takes the zip, the extracted folder or any parent of `Positive/` + `Negative/`.) It trains a
-   small CNN, reports precision/recall/F1 on a held-out test split and installs it; Settings → *AI model* then
-   shows it. Those metrics are for that dataset's 227×227 close-ups — test it on your own camera images
-   before relying on it.
+**Settings → AI model → Train & install.** The backend installs PyTorch if missing, downloads *Concrete Crack
+Images for Classification* (Özgenel, Mendeley Data), extracts it (Windows' built-in `tar` reads the inner
+`.rar`; 7-Zip is used if present), trains, tests on held-out photos and installs the model; the card shows
+progress and the test precision/recall. If the automatic download fails, download it from
+https://data.mendeley.com/datasets/5y9wdsg2zt/2 and paste the path of the zip into the *Dataset* field.
+
+Same from a terminal, with the backend running:
+
+```
+cd backend
+.venv\Scripts\python -m ml.setup_crack_model            # or add --data-dir "C:\Users\<you>\Downloads\<zip>"
+```
+
+(`--data-dir` takes the zip, the extracted folder or any parent of `Positive/` + `Negative/`.) Those metrics are for that dataset's 227×227 close-ups — test it on your own camera images
+before relying on it.
 
 ## 7b. Where is the crack? (coordinates)
 

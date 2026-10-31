@@ -87,9 +87,23 @@ export interface EnvSeries {
 }
 
 export interface MqttStatus {
-  enabled: boolean; state: string; broker: string; topic: string; last_error: string | null; connected_since: string | null; auth: string;
+  enabled: boolean; state: string; broker: string; host: string; port: number; host_overridden: boolean; topic: string; last_error: string | null; connected_since: string | null; auth: string;
   counts: { received: number; accepted: number; rejected: number };
   recent: { ts: string; topic: string; bytes: number; device_id: string | null; outcome: string; detail: string }[];
+}
+
+export interface MqttDiagnosis {
+  status: "ok" | "wrong_topic" | "other_broker" | "localhost_only" | "silent" | "no_broker";
+  summary: string; fix: string; suggest_host: string | null; backend_broker: string; lan_addresses: string[];
+  brokers: { host: string; port: number; listening: boolean; error: string | null; mqtt_ok: boolean; is_backend: boolean; lan: boolean;
+    same_broker_as: string[]; topics: { topic: string; count: number; sample: string | null }[] }[];
+}
+
+export interface TrainingStatus {
+  state: "idle" | "running" | "installing" | "done" | "failed" | "cancelled"; step: string; log: string[];
+  params: { data_path?: string | null; limit?: number; epochs?: number }; error: string | null;
+  result: { installed: string; version: string; metrics?: Record<string, number> | null } | null;
+  started_at: string | null; finished_at: string | null;
 }
 
 export interface DefectDetail {

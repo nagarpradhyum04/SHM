@@ -164,9 +164,30 @@ class MqttBridge:
         self.state = "disabled"
         self.last_error: str | None = None
         self.connected_since: datetime | None = None
+        self.host = get_settings().mqtt_host
+
+    def broker_host(self) -> str:
+        """Host chosen in Settings (after the connection check) overrides SS_MQTT_HOST."""
+        try:
+            from app.db import get_database
+            from app.services.settings_store import get_setting
+
+            db = get_database().session()
+            try:
+                return (get_setting(db, "mqtt_broker") or {}).get("host") or get_settings().mqtt_host
+            finally:
+                db.close()
+        except Exception:  # noqa: BLE001
+            return get_settings().mqtt_host
+
+    def restart(self) -> None:
+        self.stop()
+        self.client, self.connected_since = None, None
+        self.start()
 
     def start(self) -> None:
         s = get_settings()
+        self.host = self.broker_host()
         if not s.mqtt_enabled:
             self.state = "disabled"
             return
@@ -182,7 +203,7 @@ class MqttBridge:
         self.client = c
         self.state = "connecting"
         try:
-            c.connect_async(s.mqtt_host, s.mqtt_port, keepalive=30)
+            c.connect_async(self.host, s.mqtt_port, keepalive=30)
             c.loop_start()
         except Exception as exc:  # noqa: BLE001
             self.state, self.last_error = "error", str(exc)
@@ -221,8 +242,9 @@ class MqttBridge:
 
     def status(self) -> dict:
         s = get_settings()
-        return {"enabled": s.mqtt_enabled, "state": self.state, "broker": f"{s.mqtt_host}:{s.mqtt_port}",
-                "topic": f"{s.mqtt_topic_prefix.strip('/')}/<device_id>/accel|env|status", "last_error": self.last_error,
+        return {"enabled": s.mqtt_enabled, "state": self.state, "broker": f"{self.host}:{s.mqtt_port}", "host": self.host, "port": s.mqtt_port,
+                "host_overridden": self.host != s.mqtt_host,
+                "topic": f"{s.mqtt_topic_prefix.strip('/')}/# (device topics or a topic bound to a device)", "last_error": self.last_error,
                 "connected_since": self.connected_since.isoformat() if self.connected_since else None,
                 "auth": "username/password" if s.mqtt_username else "anonymous broker (protect it on shared networks)",
                 **diagnostics.snapshot()}

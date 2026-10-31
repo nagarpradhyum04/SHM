@@ -2,7 +2,7 @@ import { CheckCircle2, RefreshCw, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, API_BASE } from "@/api/client";
 import { useAlertRules, useApiMutation, useModels, useSettings, useSystemStatus } from "@/api/hooks";
-import type { AlertRule, MqttStatus } from "@/api/types";
+import type { AlertRule, MqttDiagnosis, MqttStatus, TrainingStatus } from "@/api/types";
 import { NotificationsSettings } from "@/components/NotificationsSettings";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, ErrorState, Field, KV, Loading, Notice, PageHeader, Segmented, Stat } from "@/components/ui";
@@ -103,13 +103,9 @@ function ModelSection() {
           </div>
         ))}
       </Card>
-      <Card title="Install a model" bodyClass="space-y-3 p-3">
-        <ol className="list-decimal space-y-1 pl-4 text-xs text-slate-300">
-          <li>On your laptop, download the free <i>Concrete Crack Images for Classification</i> dataset (Mendeley Data, CC BY 4.0) and extract it.</li>
-          <li>In <code className="mono">backend</code>: <code className="mono">pip install torch onnx</code>, then
-            <code className="mono"> python -m ml.setup_crack_model --data-dir &lt;extracted folder&gt;</code> — it trains, tests and installs the model here automatically.</li>
-          <li>Or upload an already-trained <code className="mono">model.onnx</code> with its <code className="mono">model_card.json</code> below.</li>
-        </ol>
+      <TrainCard />
+      <Card title="Or install a trained model" bodyClass="space-y-3 p-3">
+        <p className="text-xs text-slate-300">Upload a <code className="mono">model.onnx</code> with its <code className="mono">model_card.json</code> (for example trained on another computer).</p>
         <div className="grid grid-cols-2 gap-2">
           <Field label="model.onnx"><input type="file" accept=".onnx" className="input" onChange={(e) => setOnnx(e.target.files?.[0] ?? null)} aria-label="ONNX model file" /></Field>
           <Field label="model_card.json"><input type="file" accept=".json,application/json" className="input" onChange={(e) => setCard(e.target.files?.[0] ?? null)} aria-label="Model card file" /></Field>
@@ -159,6 +155,112 @@ function PriorityRules({ value }: { value: Record<string, any> }) {
   );
 }
 
+function TrainCard() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["training"], queryFn: () => api<TrainingStatus>("/models/train"),
+    refetchInterval: (query) => (["running", "installing"].includes(query.state.data?.state ?? "") ? 2000 : false) });
+  const [path, setPath] = useState("");
+  const [quick, setQuick] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const t = q.data;
+  const busy = t?.state === "running" || t?.state === "installing";
+  useEffect(() => {
+    if (t?.state === "done") ["models", "system-status"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  }, [t?.state, qc]);
+  const start = async () => {
+    setErr(null);
+    try {
+      await api("/models/train", { method: "POST", json: { data_path: path.trim() || null, limit: quick ? 3000 : 20000, epochs: quick ? 5 : 8 } });
+      qc.invalidateQueries({ queryKey: ["training"] });
+    } catch (e) { setErr((e as Error).message); }
+  };
+  const m = t?.result?.metrics;
+  return (
+    <Card title="Train the crack model on this computer" bodyClass="space-y-3 p-3">
+      <p className="text-xs text-slate-300">
+        Trains a small CNN on the public <i>Concrete Crack Images for Classification</i> dataset (Özgenel, Mendeley Data, CC BY 4.0 — 40,000 photos of
+        concrete with and without cracks), tests it on photos it never saw, and installs it. Needs internet once (≈235 MB dataset, plus ≈200 MB for
+        PyTorch if it is not installed).
+      </p>
+      <Field label="Dataset (optional)" hint="Leave empty to download automatically. If the download fails, download it yourself from data.mendeley.com/datasets/5y9wdsg2zt/2 and paste the path of the .zip (or extracted folder) here.">
+        <input className="input" placeholder="e.g. C:\Users\you\Downloads\5y9wdsg2zt-2.zip" value={path} onChange={(e) => setPath(e.target.value)} disabled={busy} aria-label="Dataset path" />
+      </Field>
+      <label className="flex items-center gap-2 text-xs text-slate-300">
+        <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} disabled={busy} />
+        Quick (6,000 photos, ~10–20 min on a laptop CPU). Untick to use all 40,000 photos (about an hour, slightly better).
+      </label>
+      <div className="flex items-center gap-2">
+        <button className="btn-primary" onClick={start} disabled={busy}>{busy ? "Training…" : t?.state === "done" ? "Train again" : "Train & install"}</button>
+        {busy && <button className="btn-ghost" onClick={() => api("/models/train/cancel", { method: "POST" }).then(() => qc.invalidateQueries({ queryKey: ["training"] }))}>Cancel</button>}
+      </div>
+      {err && <div role="alert" className="text-xs text-red-300">{err}</div>}
+      {t && t.state !== "idle" && (
+        <div className="space-y-1">
+          <div className={`text-xs ${t.state === "failed" ? "text-red-300" : t.state === "done" ? "text-emerald-300" : "text-slate-200"}`}>
+            {t.state === "done" ? `Installed ${t.result?.installed} v${t.result?.version}.` : t.state === "failed" ? `Failed: ${t.error}` : t.state === "cancelled" ? "Cancelled." : `Working: ${t.step}`}
+          </div>
+          {t.state === "done" && m && (
+            <div className="text-[11px] text-slate-400">Test results on held-out dataset photos: precision {pct(m.precision)}, recall {pct(m.recall)}, F1 {pct(m.f1)}.
+              These are close-up photos; check detections on your own webcam images before relying on it.</div>
+          )}
+          <pre className="mono max-h-48 overflow-auto rounded border border-white/5 bg-black/30 p-2 text-[10px] text-slate-400">{t.log.filter((l) => !/^\s|^[{}\]]$|^"/.test(l) || l.startsWith("{'")).slice(-30).join("\n")}</pre>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function MqttCheck({ m }: { m: MqttStatus }) {
+  const qc = useQueryClient();
+  const [d, setD] = useState<MqttDiagnosis | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true); setErr(null);
+    try { setD(await api<MqttDiagnosis>("/mqtt/diagnose?listen_s=5", { method: "POST" })); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const use = async (host: string | null) => {
+    await api("/mqtt/broker", { method: "PUT", json: { host } });
+    qc.invalidateQueries({ queryKey: ["mqtt"] });
+    setD(null);
+  };
+  const good = d?.status === "ok";
+  return (
+    <div className="space-y-2 rounded border border-white/10 p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn-primary" onClick={run} disabled={busy}>{busy ? "Checking (5 s)…" : "Check connection"}</button>
+        <span className="text-[11px] text-slate-400">Finds the brokers on this computer and listens for 5 s to see where your device's messages actually go.</span>
+        {m.host_overridden && <button className="btn-ghost" onClick={() => use(null)}>Back to default broker</button>}
+      </div>
+      {err && <div role="alert" className="text-xs text-red-300">{err}</div>}
+      {d && (
+        <div className="space-y-2 text-xs">
+          <div className={`rounded border p-2 ${good ? "border-emerald-400/30 bg-emerald-400/5 text-emerald-200" : "border-amber-400/30 bg-amber-400/5 text-amber-100"}`}>
+            <div className="font-semibold">{d.summary}</div>
+            <div className="mt-1 text-slate-300">{d.fix}</div>
+            {d.suggest_host && <button className="btn-primary mt-2" onClick={() => use(d.suggest_host)}>Use {d.suggest_host}</button>}
+          </div>
+          <table className="table-base">
+            <thead><tr><th>Address</th><th>Broker</th><th>Messages seen in 5 s</th></tr></thead>
+            <tbody>{d.brokers.map((b) => (
+              <tr key={b.host}>
+                <td className="mono">{b.host}:{b.port}{b.is_backend && <span className="ml-1 text-accent-soft">(backend)</span>}{b.lan && <span className="ml-1 text-slate-500">(network)</span>}</td>
+                <td>{!b.listening ? <span className="text-red-300">not listening{b.error ? ` — ${b.error}` : ""}</span>
+                  : b.same_broker_as.length ? `same broker as ${b.same_broker_as.join(", ")}` : b.mqtt_ok ? "separate broker" : <span className="text-amber-300">{b.error}</span>}</td>
+                <td className="text-[11px]">{b.topics.length ? b.topics.map((t) => <div key={t.topic}><span className="mono">{t.topic}</span> ×{t.count} <span className="text-slate-500">{t.sample?.slice(0, 70)}</span></div>) : <span className="text-slate-500">none</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {d.status === "localhost_only" && (
+            <div className="text-[11px] text-slate-400">Script: in the project folder, open PowerShell <b>as administrator</b> and run
+              <code className="mono"> powershell -ExecutionPolicy Bypass -File scripts\start-broker.ps1</code>. It makes the Mosquitto service listen on the network, starts it with Windows and opens port 1883 in the firewall.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MqttCard() {
   const q = useQuery({ queryKey: ["mqtt"], queryFn: () => api<MqttStatus>("/mqtt/status"), refetchInterval: 5000 });
   const m = q.data;
@@ -171,12 +273,13 @@ function MqttCard() {
           <KV k="Topics" v={m.topic} mono />
           <KV k="Broker auth" v={m.auth} />
           <KV k="Messages" v={`${m.counts.received} received · ${m.counts.accepted} accepted · ${m.counts.rejected} rejected`} />
+          <MqttCheck m={m} />
           <div className="label pt-1">Recent messages</div>
           <div className="max-h-56 overflow-auto rounded border border-white/5">
             {m.recent.length === 0 ? (
               <div className="space-y-1 p-2 text-[11px] text-slate-400">
-                <div className="text-slate-300">Nothing received yet. Even rejected messages are listed here, so the backend is not getting them at all.</div>
-                <div>1. Check the broker sees the ESP32: <code className="mono">mosquitto_sub -h 127.0.0.1 -t "bridge/#" -v</code> — if nothing appears, also try <code className="mono">-h &lt;laptop IP&gt;</code>.</div>
+                <div className="text-slate-300">Nothing received yet. Even rejected messages are listed here, so the backend is not getting them at all — press <b>Check connection</b> above.</div>
+                <div>Manual checks: 1. Check the broker sees the ESP32: <code className="mono">mosquitto_sub -h 127.0.0.1 -t "bridge/#" -v</code> — if nothing appears, also try <code className="mono">-h &lt;laptop IP&gt;</code>.</div>
                 <div>2. If only the laptop-IP command shows data, two brokers are running (on Windows the "Mosquitto Broker" service listens on 127.0.0.1). Stop that service
                   (<code className="mono">net stop mosquitto</code>, as administrator) or set <code className="mono">SS_MQTT_HOST=&lt;laptop IP&gt;</code> in <code className="mono">backend/.env</code> and restart the backend.</div>
                 <div>3. Allow TCP 1883 in the Windows firewall for private networks.</div>

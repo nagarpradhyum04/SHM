@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -136,52 +137,21 @@ async def upload_model(onnx_file: UploadFile = File(...), card_file: UploadFile 
     """Install a trained ONNX model with its model card (as produced by backend/ml/train_crack_classifier.py).
     The model is loaded once to prove it works before it is activated; nothing is installed on failure."""
     import json
-    import re
-    import shutil
 
-    from app.services.inference.registry import REQUIRED_CARD_FIELDS
+    from app.services.model_install import InstallError, install_model
 
     try:
         card = json.loads((await card_file.read(1_000_000)).decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HTTPException(422, "model_card.json is not valid JSON") from exc
-    missing = [f for f in REQUIRED_CARD_FIELDS if f not in card]
-    if missing:
-        raise HTTPException(422, f"model card is missing fields: {missing}")
-    if card["framework"] != "onnx" or card["task"] != "classification":
-        raise HTTPException(422, "Only ONNX classification models are supported by this release.")
-    if not re.fullmatch(r"[A-Za-z0-9_.\-]{1,80}", str(card["id"])):
-        raise HTTPException(422, "model id may only contain letters, digits, '.', '_' and '-'")
     limit = 300 * 1024 * 1024
     data = await onnx_file.read(limit + 1)
     if len(data) > limit:
         raise HTTPException(413, "Model file exceeds 300 MB")
-    reg = get_model_registry()
-    target = reg.model_dir / str(card["id"])
-    backup = None
-    if target.exists():
-        backup = target.with_name(target.name + ".previous")
-        shutil.rmtree(backup, ignore_errors=True)
-        target.rename(backup)
-    target.mkdir(parents=True)
-    card["file"] = "model.onnx"
-    (target / "model.onnx").write_bytes(data)
-    (target / "model_card.json").write_text(json.dumps(card, indent=2))
-    reg.scan()
-    if card["id"] not in {m["id"] for m in reg.status()["loaded"]}:
-        error = next(iter(reg.status()["errors"].values()), "model could not be loaded")
-        shutil.rmtree(target, ignore_errors=True)
-        if backup:
-            backup.rename(target)
-        reg.scan()
-        raise HTTPException(422, f"Model could not be loaded: {error}")
-    if backup:
-        shutil.rmtree(backup, ignore_errors=True)
-    set_setting(db, "active_model", {"model_id": card["id"]}, actor=actor)
-    reg.sync_db(db)
-    log_event(db, event_type="config_changed", title=f"AI model {card['id']} v{card['version']} installed", actor=actor)
-    db.commit()
-    return {"installed": card["id"], "version": card["version"], "metrics_recorded": card.get("metrics") is not None, **reg.status()}
+    try:
+        return install_model(db, card, data, actor)
+    except InstallError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/models/reload")
@@ -246,3 +216,36 @@ def put_rul_config(component_id: str, body: SettingIn, db: Session = Depends(get
               component_id=component_id, actor=body.actor)
     db.commit()
     return cfg
+
+
+class TrainIn(BaseModel):
+    data_path: str | None = Field(None, max_length=1000, description="downloaded zip/rar or extracted folder on this computer; empty = download")
+    limit: int = Field(6000, ge=200, le=20000, description="images per class")
+    epochs: int = Field(6, ge=1, le=30)
+
+
+@router.get("/models/train")
+def training_status():
+    from app.services.model_training import job
+
+    return job.status()
+
+
+@router.post("/models/train", status_code=202)
+def training_start(body: TrainIn):
+    """Download the public crack dataset (or use a local copy), train the CNN on this computer and install it."""
+    from app.services.model_training import job
+
+    try:
+        return job.start((body.data_path or "").strip().strip('"') or None, body.limit, body.epochs)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/models/train/cancel")
+def training_cancel():
+    from app.services.model_training import job
+
+    return job.cancel()

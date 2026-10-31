@@ -40,6 +40,8 @@ class ModelRegistry:
                 return
             for card_path in sorted(self.model_dir.glob("*/model_card.json")):
                 key = card_path.parent.name
+                if key.startswith(".") or key.endswith(".previous"):
+                    continue  # backups kept during a re-install
                 try:
                     card = json.loads(card_path.read_text())
                     missing = [f for f in REQUIRED_CARD_FIELDS if f not in card]

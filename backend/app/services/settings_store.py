@@ -83,6 +83,7 @@ DEFAULTS: dict[str, Any] = {
     "display": {"reduced_motion": False, "units": "metric"},
     "retention": {"raw_readings_days": 30, "features_days": 3650, "images_days": None},
     "active_model": {"model_id": None},
+    "mqtt_broker": {"host": None},
 }
 
 
