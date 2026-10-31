@@ -1,0 +1,2 @@
+# Wi-Fi / broker credentials — never commit
+firmware/**/secrets.h
