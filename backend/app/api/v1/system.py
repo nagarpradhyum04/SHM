@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -8,7 +8,7 @@ from app.api.deps import get_or_404, get_session
 from app.config import get_settings
 from app.models import ModelRecord, RULResult, SensorReading, VibrationFeature
 from app.schemas import ModelOut, RULIn, RULOut, SettingIn
-from app.services import rul
+from app.services import fatigue, rul
 from app.services.events import log_event
 from app.services.inference import DEFECT_CATEGORIES, get_model_registry
 from app.services.settings_store import DEFAULTS, PRIORITY_LEVELS, all_settings, get_setting, set_setting
@@ -16,6 +16,17 @@ from app.services.storage import get_storage
 from app.timeutil import utcnow
 
 router = APIRouter(tags=["system"])
+
+
+def api_index():
+    """Entry point of the REST API: what is available and where the documentation lives."""
+    return {
+        "name": "StructuraSense AI API", "version": "v1", "status": "ok",
+        "documentation": "/docs", "openapi_schema": "/openapi.json",
+        "examples": {"health": "/api/v1/health", "assets": "/api/v1/assets", "devices": "/api/v1/devices", "system_status": "/api/v1/system/status"},
+        "device_ingestion": {"http": "POST /api/v1/ingest/readings (header X-Device-Token)",
+                             "mqtt": "bridge/<device_id>/accel|env|status (token in payload)"},
+    }
 
 
 @router.get("/health")
@@ -114,6 +125,60 @@ def models(db: Session = Depends(get_session)):
     return db.query(ModelRecord).order_by(ModelRecord.registered_at.desc()).all()
 
 
+@router.post("/models/upload", status_code=201)
+async def upload_model(onnx_file: UploadFile = File(...), card_file: UploadFile = File(...), actor: str | None = Form(None),
+                       db: Session = Depends(get_session)):
+    """Install a trained ONNX model with its model card (as produced by backend/ml/train_crack_classifier.py).
+    The model is loaded once to prove it works before it is activated; nothing is installed on failure."""
+    import json
+    import re
+    import shutil
+
+    from app.services.inference.registry import REQUIRED_CARD_FIELDS
+
+    try:
+        card = json.loads((await card_file.read(1_000_000)).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(422, "model_card.json is not valid JSON") from exc
+    missing = [f for f in REQUIRED_CARD_FIELDS if f not in card]
+    if missing:
+        raise HTTPException(422, f"model card is missing fields: {missing}")
+    if card["framework"] != "onnx" or card["task"] != "classification":
+        raise HTTPException(422, "Only ONNX classification models are supported by this release.")
+    if not re.fullmatch(r"[A-Za-z0-9_.\-]{1,80}", str(card["id"])):
+        raise HTTPException(422, "model id may only contain letters, digits, '.', '_' and '-'")
+    limit = 300 * 1024 * 1024
+    data = await onnx_file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, "Model file exceeds 300 MB")
+    reg = get_model_registry()
+    target = reg.model_dir / str(card["id"])
+    backup = None
+    if target.exists():
+        backup = target.with_name(target.name + ".previous")
+        shutil.rmtree(backup, ignore_errors=True)
+        target.rename(backup)
+    target.mkdir(parents=True)
+    card["file"] = "model.onnx"
+    (target / "model.onnx").write_bytes(data)
+    (target / "model_card.json").write_text(json.dumps(card, indent=2))
+    reg.scan()
+    if card["id"] not in {m["id"] for m in reg.status()["loaded"]}:
+        error = next(iter(reg.status()["errors"].values()), "model could not be loaded")
+        shutil.rmtree(target, ignore_errors=True)
+        if backup:
+            backup.rename(target)
+        reg.scan()
+        raise HTTPException(422, f"Model could not be loaded: {error}")
+    if backup:
+        shutil.rmtree(backup, ignore_errors=True)
+    set_setting(db, "active_model", {"model_id": card["id"]}, actor=actor)
+    reg.sync_db(db)
+    log_event(db, event_type="config_changed", title=f"AI model {card['id']} v{card['version']} installed", actor=actor)
+    db.commit()
+    return {"installed": card["id"], "version": card["version"], "metrics_recorded": card.get("metrics") is not None, **reg.status()}
+
+
 @router.post("/models/reload")
 def reload_models(db: Session = Depends(get_session)):
     reg = get_model_registry()
@@ -129,14 +194,50 @@ def rul_estimate(body: RULIn, db: Session = Depends(get_session)):
     from app.models import Asset
 
     get_or_404(db, Asset, body.asset_id, "Asset")
-    res = rul.estimate(db, body.asset_id, body.component_id)
+    # With a component: fatigue life from measured loading; asset-wide: input coverage summary only.
+    res = fatigue.estimate(db, body.component_id) if body.component_id else rul.estimate(db, body.asset_id, None)
+    log_event(db, event_type="rul_assessment", title=f"RUL assessment {res.id} ({res.status.replace('_', ' ')})", asset_id=body.asset_id,
+              component_id=body.component_id, ref_type="rul", ref_id=res.id, data_source=res.data_source)
     db.commit()
     return res
 
 
 @router.get("/rul/results", response_model=list[RULOut])
-def rul_results(asset_id: str | None = None, db: Session = Depends(get_session)):
+def rul_results(asset_id: str | None = None, component_id: str | None = None, db: Session = Depends(get_session)):
     q = db.query(RULResult)
     if asset_id:
         q = q.filter(RULResult.asset_id == asset_id)
+    if component_id:
+        q = q.filter(RULResult.component_id == component_id)
     return q.order_by(RULResult.created_at.desc()).limit(50).all()
+
+
+@router.get("/rul/options")
+def rul_options():
+    return {"method": fatigue.METHOD, "detail_categories_mpa": fatigue.DETAIL_CATEGORIES, "defaults": fatigue.DEFAULT_CONFIG,
+            "description": (fatigue.__doc__ or "").strip()}
+
+
+@router.get("/rul/config/{component_id}")
+def rul_config(component_id: str, db: Session = Depends(get_session)):
+    from app.models import Component
+
+    get_or_404(db, Component, component_id, "Component")
+    return fatigue.get_config(db, component_id)
+
+
+@router.put("/rul/config/{component_id}")
+def put_rul_config(component_id: str, body: SettingIn, db: Session = Depends(get_session)):
+    from app.models import Component
+
+    comp = get_or_404(db, Component, component_id, "Component")
+    if not isinstance(body.value, dict):
+        raise HTTPException(422, "value must be an object")
+    try:
+        cfg = fatigue.save_config(db, component_id, body.value, body.actor)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    log_event(db, event_type="config_changed", title=f"Fatigue/RUL inputs updated for {comp.name}", asset_id=comp.asset_id,
+              component_id=component_id, actor=body.actor)
+    db.commit()
+    return cfg

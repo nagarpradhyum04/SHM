@@ -525,6 +525,9 @@ class RULResult(Base):
     validation_status: Mapped[str] = mapped_column(String(40))
     limitations: Mapped[list | None] = mapped_column(JSON)
     message: Mapped[str | None] = mapped_column(Text)
+    # Method-specific evidence (e.g. rainflow histogram, S-N parameters, configuration snapshot)
+    details: Mapped[dict | None] = mapped_column(JSON)
+    data_source: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

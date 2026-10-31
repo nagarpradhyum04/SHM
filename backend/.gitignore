@@ -6,3 +6,4 @@ data/
 .pytest_cache/
 model_store/*/
 !model_store/README.md
+model_store_build/

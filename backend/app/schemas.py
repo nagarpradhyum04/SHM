@@ -643,6 +643,8 @@ class RULOut(ORM):
     validation_status: str
     limitations: list | None
     message: str | None
+    details: dict | None = None
+    data_source: str | None = None
     created_at: datetime
 
 

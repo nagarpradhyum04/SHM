@@ -101,8 +101,7 @@ def set_setting(db: Session, key: str, value: Any, actor: str | None = None) -> 
 
 
 def all_settings(db: Session) -> dict[str, Any]:
-    keys = set(DEFAULTS) | {r.key for r in db.query(SystemConfig).all()}
-    return {k: get_setting(db, k) for k in sorted(keys)}
+    return {k: get_setting(db, k) for k in sorted(DEFAULTS)}
 
 
 def raise_priority(level: str, steps: int = 1) -> str:

@@ -67,11 +67,15 @@ def test_persistence_across_restart(env):
         assert c.get(f"{API}/assets/P1").status_code == 200
 
 
-def test_rul_is_unavailable_without_validated_model(seeded_client):
+def test_rul_is_unavailable_without_inputs(seeded_client):
+    # component level: fatigue method states exactly which engineering inputs are missing
     r = seeded_client.post(f"{API}/rul/estimate", json={"asset_id": "DEMO-BRIDGE-01", "component_id": "DECK-S09"}).json()
     assert r["status"] == "unavailable" and r["estimate"] is None
-    assert r["message"] == "RUL prediction unavailable: insufficient validated data."
-    cov = r["input_coverage"]["time_series_structural_measurements"]
+    assert "stress-per-g" in r["message"] and "detail category" in r["message"]
+    # asset level: input-coverage summary only, never a number
+    a = seeded_client.post(f"{API}/rul/estimate", json={"asset_id": "DEMO-BRIDGE-01"}).json()
+    assert a["status"] == "unavailable" and a["message"] == "RUL prediction unavailable: insufficient validated data."
+    cov = a["input_coverage"]["time_series_structural_measurements"]
     assert cov["available"] is False and "simulated" in cov["by_source"]
 
 

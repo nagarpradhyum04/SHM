@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.v1 import api_router
 from app.config import get_settings
@@ -70,6 +70,10 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(CORSMiddleware, allow_origins=s.cors_origins, allow_methods=["*"], allow_headers=["*"])
     app.include_router(api_router)
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        return RedirectResponse("/docs")
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):  # pragma: no cover - safety net

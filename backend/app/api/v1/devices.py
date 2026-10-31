@@ -97,3 +97,44 @@ def rotate_token(device_id: str, db: Session = Depends(get_session)):
     log_event(db, event_type="config_changed", title=f"Ingestion token rotated for {dev.name}", asset_id=dev.asset_id, device_id=dev.id)
     db.commit()
     return {"device_id": dev.id, "ingestion_token": token}
+
+
+@router.get("/devices/{device_id}/delete-preview")
+def delete_preview(device_id: str, db: Session = Depends(get_session)):
+    """What deleting this device would remove (shown in the confirmation dialog)."""
+    from app.models import Baseline, EnvironmentReading, Inspection, MediaClip, SensorReading, VibrationFeature
+
+    dev = get_or_404(db, Device, device_id, "Device")
+    return {
+        "device_id": dev.id,
+        "removed": {
+            "sensor_readings": db.query(SensorReading).filter(SensorReading.device_id == dev.id).count(),
+            "vibration_features": db.query(VibrationFeature).filter(VibrationFeature.device_id == dev.id).count(),
+            "baselines": db.query(Baseline).filter(Baseline.device_id == dev.id).count(),
+            "environment_readings": db.query(EnvironmentReading).filter(EnvironmentReading.device_id == dev.id).count(),
+        },
+        "kept": {
+            "inspections": db.query(Inspection).filter(Inspection.device_id == dev.id).count(),
+            "clips": db.query(MediaClip).filter(MediaClip.device_id == dev.id).count(),
+            "note": "Inspections, images, clips, findings and alerts are kept as history (their device reference is cleared).",
+        },
+    }
+
+
+@router.delete("/devices/{device_id}")
+def delete_device(device_id: str, actor: str | None = None, db: Session = Depends(get_session)):
+    """Delete a device and its raw/derived sensor data. Findings, inspections, images, clips and alerts stay as history."""
+    from app.models import Baseline, EnvironmentReading, ImageRecord, Inspection, MediaClip, SensorReading, VibrationFeature
+
+    dev = get_or_404(db, Device, device_id, "Device")
+    asset_id, name = dev.asset_id, dev.name
+    for model in (SensorReading, VibrationFeature, Baseline, EnvironmentReading):
+        db.query(model).filter(model.device_id == dev.id).delete(synchronize_session=False)
+    for model in (Inspection, ImageRecord, MediaClip):
+        db.query(model).filter(model.device_id == dev.id).update({"device_id": None}, synchronize_session=False)
+    db.delete(dev)
+    log_event(db, event_type="device_deleted", title=f"Device {name} ({device_id}) deleted", asset_id=asset_id, device_id=device_id,
+              actor=actor, data={"device_id": device_id})
+    db.commit()
+    broadcaster.publish("devices", {"asset_id": asset_id})
+    return {"deleted": device_id}
