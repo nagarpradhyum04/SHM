@@ -66,8 +66,18 @@ def main() -> None:
     log(f"STEP model written to {args.out}")
     if args.no_upload:
         return
-    res = post_multipart_two(args.api.rstrip("/") + "/api/v1/models/upload", args.out / "model.onnx", args.out / "model_card.json")
-    log(f"STEP installed: {res.get('installed')} v{res.get('version')}")
+    try:
+        res = post_multipart_two(args.api.rstrip("/") + "/api/v1/models/upload", args.out / "model.onnx", args.out / "model_card.json")
+        log(f"STEP installed: {res.get('installed')} v{res.get('version')} — active now")
+    except OSError as exc:  # backend not running: install into the model folder it reads at start-up
+        target = ROOT / "model_store" / MODEL_ID
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(args.out / "model.onnx", target / "model.onnx")
+        shutil.copy2(args.out / "model_card.json", target / "model_card.json")
+        log(f"STEP backend not reachable ({exc}); model copied to {target} — it is used the next time the backend starts")
+    card = json.loads((args.out / "model_card.json").read_text())
+    m = card.get("metrics") or {}
+    log(f"RESULT test photos: {m.get('n')} · precision {m.get('precision')} · recall {m.get('recall')} · F1 {m.get('f1')}")
 
 
 def ensure_deps() -> None:

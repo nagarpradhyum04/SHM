@@ -63,7 +63,7 @@ and delete `backend/data/`.
 
 * **MQTT "0 received"?** Settings → *Check connection* finds which broker your ESP32 really talks to; on
   Windows `scripts\start-broker.ps1` (as administrator) makes Mosquitto listen on the network.
-* **Crack model:** Settings → *AI model* → **Train & install** downloads the public dataset, trains and installs it.
+* **Crack model:** double-click `scripts\install-ai-model.bat` (finds `data.zip` in Downloads, trains, tests, installs) — or Settings → *AI model* → **Train & install**.
 
 * **Message alerts:** Settings → *Messages* — Telegram (with the crack photo), email, SMS or webhook (ntfy/Discord/Slack), including the crack's photo coordinates, 3D point and GPS.
 
