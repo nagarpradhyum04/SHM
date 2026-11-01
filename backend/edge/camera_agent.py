@@ -306,13 +306,78 @@ def run(args) -> None:
     cap.running = False
 
 
+AUTO_FILE = Path(__file__).resolve().parent.parent / "data" / "camera_agent.json"
+
+
+def _api_json(base: str, path: str, method: str = "GET", body: dict | None = None):
+    req = urllib.request.Request(base.rstrip("/") + "/api/v1" + path, method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json"} if body is not None else {})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read() or b"null")
+
+
+def auto_setup(args) -> None:
+    """--auto: register this webcam (once), remember its token in backend/data/camera_agent.json, pick the camera."""
+    saved = {}
+    if AUTO_FILE.exists():
+        try:
+            saved = json.loads(AUTO_FILE.read_text())
+        except ValueError:
+            saved = {}
+    try:
+        _api_json(args.api, "/health")
+    except (urllib.error.URLError, OSError) as exc:
+        raise SystemExit(f"Backend not reachable at {args.api} ({exc}). Start it first (scripts\\dev.ps1), then run this again.") from None
+    dev_id = args.device_id or saved.get("device_id") or "WEBCAM-01"
+    token = args.token or (saved.get("token") if saved.get("device_id") == dev_id else None)
+    try:
+        dev = _api_json(args.api, f"/devices/{dev_id}")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        dev = None
+    if dev is None:
+        assets = _api_json(args.api, "/assets") or []
+        if not assets:
+            raise SystemExit("No structure exists yet. Create one in the app (Structures), then run this again.")
+        asset = next((a for a in assets if a["id"] == args.asset), None) or next((a for a in assets if not a.get("is_demo")), assets[0])
+        r = _api_json(args.api, "/devices", "POST", {"id": dev_id, "device_type": "camera", "name": "USB webcam", "asset_id": asset["id"],
+                                                     "data_source": "real", "capabilities": ["image"], "hardware_model": "USB webcam"})
+        token = r["ingestion_token"]
+        print(f"Registered camera {dev_id} on '{asset['name']}'. Place it on the 3D model later: Devices -> {dev_id} -> Edit placement.")
+    elif dev.get("data_source") != "real":
+        raise SystemExit(f"{dev_id} is a simulated device; use another id: --device-id WEBCAM-02")
+    elif not token:
+        token = _api_json(args.api, f"/devices/{dev_id}/rotate-token", "POST")["ingestion_token"]
+        print(f"New token issued for {dev_id} (the old one no longer works).")
+    if args.source == "auto":
+        if saved.get("source") is not None and saved.get("device_id") == dev_id:
+            args.source = str(saved["source"])
+        else:
+            cams = list_cameras()
+            if not cams:
+                raise SystemExit("No webcam delivered frames. Plug it in and close Zoom/Teams/Camera app/browser tabs using it.")
+            # on a laptop index 0 is usually the built-in camera; a plugged-in USB camera is usually 1
+            pick = next((c for c in cams if c["index"] == 1), cams[0])
+            print("Cameras found: " + ", ".join(f"{c['index']} ({c['width']}x{c['height']})" for c in cams)
+                  + f". Using {pick['index']}. Wrong one? add --source <number>")
+            args.source = str(pick["index"])
+    AUTO_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AUTO_FILE.write_text(json.dumps({"device_id": dev_id, "token": token, "source": args.source}))
+    args.device_id, args.token = dev_id, token
+    print(f"Camera {dev_id} (source {args.source}) starting. Live view: open the app -> Live cameras. Stop with Ctrl+C.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--api", default="http://127.0.0.1:8000")
     ap.add_argument("--device-id")
     ap.add_argument("--token")
     ap.add_argument("--list-cameras", action="store_true", help="print the webcam indices that deliver frames, then exit")
-    ap.add_argument("--source", default="0", help="webcam index (0, 1, …), video file or stream URL")
+    ap.add_argument("--source", default=None, help="webcam index (0, 1, …), video file or stream URL (--auto: auto)")
+    ap.add_argument("--auto", action="store_true", help="register this webcam if needed, remember its token, pick the USB camera")
+    ap.add_argument("--asset", default=None, help="--auto: structure id to register the camera on")
     ap.add_argument("--loop", action="store_true", help="loop a video file source")
     ap.add_argument("--fps", type=float, default=10)
     ap.add_argument("--width", type=int, default=1280)
@@ -331,8 +396,12 @@ def main() -> None:
         cams = list_cameras()
         print("\n".join(f"--source {c['index']}   ({c['width']}x{c['height']})" for c in cams) or "No webcam delivered frames (is another app using it?).")
         return
+    if args.auto:
+        args.source = args.source or "auto"
+        auto_setup(args)
+    args.source = args.source or "0"
     if not args.device_id or not args.token:
-        ap.error("--device-id and --token are required")
+        ap.error("--device-id and --token are required (or use --auto)")
     run(args)
 
 

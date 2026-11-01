@@ -142,6 +142,12 @@ condensation margin (air temperature − dew point), after N consecutive samples
 
 ## 7. Webcam: detect, keep a short clip and the photo, update the dashboard
 
+**Quick start (Windows):** with the app running, double-click `scripts\start-camera.bat` (or run
+`backend\.venv\Scripts\python -m edge.camera_agent --auto`). The first time it registers the webcam as
+`WEBCAM-01` and saves its token in `backend\data\camera_agent.json`; it picks camera 1 (usually the USB
+one) — use `start-camera.bat --source 0` for the other. Keep the window open; open **Live cameras**.
+The manual steps below do the same by hand.
+
 1. Register a **Camera** (data source real) on the part it watches; place it with **Edit placement**
    and **Aim at point**.
 2. On the laptop the USB webcam is plugged into, first find its index (built-in laptop cameras are usually 0,

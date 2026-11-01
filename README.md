@@ -54,7 +54,7 @@ and delete `backend/data/`.
   alerts appear live; Settings → *IoT connection (MQTT)* shows every message and why any was rejected.
 * **Your own summary sketch** (`bridge/sensors`, vib/peak/tilt/temp/hum): bind the topic to the device
   (Device Registry → Edit → MQTT options) — no reflash.
-* **USB webcam:** register a *Camera*, run `python -m edge.camera_agent --device-id … --token …` in `backend/`.
+* **USB webcam:** double-click `scripts\start-camera.bat` (registers the webcam the first time, then starts it).
   *Live cameras* shows the live view; on a detection the annotated photo (box, pixel/3D/GPS coordinates) is
   saved at once and a clip of the 30 s before + 30 s after follows. Crack detection requires a trained model —
   none is shipped; `python -m ml.setup_crack_model --data-dir <downloaded zip>` trains and installs one.
